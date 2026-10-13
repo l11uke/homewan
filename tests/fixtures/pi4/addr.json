@@ -1,0 +1,5 @@
+[{"ifname":"lo","flags":["LOOPBACK","UP","LOWER_UP"],"operstate":"UNKNOWN","address":"00:00:00:00:00:00","addr_info":[{"family":"inet","local":"127.0.0.1","prefixlen":8}]},
+ {"ifname":"eth0","flags":["BROADCAST","MULTICAST","UP","LOWER_UP"],"operstate":"UP","address":"02:00:00:00:00:01","addr_info":[]},
+ {"ifname":"eth1","flags":["BROADCAST","MULTICAST","UP","LOWER_UP"],"operstate":"UNKNOWN","address":"02:00:00:00:00:02","addr_info":[{"family":"inet","local":"192.168.1.10","prefixlen":24}]},
+ {"ifname":"wlan0","flags":["BROADCAST","MULTICAST","UP","LOWER_UP"],"operstate":"UP","address":"02:00:00:00:00:03","addr_info":[{"family":"inet","local":"192.168.1.11","prefixlen":24}]},
+ {"ifname":"docker0","flags":["UP"],"operstate":"UP","address":"02:00:00:00:00:04","addr_info":[{"family":"inet","local":"172.17.0.1","prefixlen":16}]}]

@@ -1,0 +1,3 @@
+[{"dst":"default","gateway":"192.168.1.1","dev":"eth1","metric":100},
+ {"dst":"default","gateway":"192.168.1.1","dev":"wlan0","metric":600},
+ {"dst":"192.168.1.0/24","dev":"eth1","metric":100}]

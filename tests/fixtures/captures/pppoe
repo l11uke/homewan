@@ -1,0 +1,1 @@
+20:32:54.000001 02:00:00:00:00:aa > 02:00:00:00:00:bb, ethertype PPPoE S (0x8864), length 102: PPPoE  [ses 0x12] IP (tos 0x0, ttl 63) 203.0.113.7 > 9.9.9.9: ICMP echo request, id 7, seq 1, length 64

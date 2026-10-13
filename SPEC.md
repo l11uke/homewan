@@ -1,6 +1,6 @@
 # homewan specification
 
-Version 0.3 (draft for review), 2026-10-14
+Version 0.4 (draft for review), 2026-10-14
 
 ## 1. Purpose
 
@@ -14,7 +14,7 @@ An installer interviews the user, checks their hardware and network, and produce
 
 | Feature | Default | Needs |
 |---|---|---|
-| Weekly email report | On | An SMTP account (Gmail, Outlook.com, Fastmail or any SMTP server) |
+| Weekly email report | On | An SMTP account (Gmail, Fastmail, iCloud Mail or any SMTP server) |
 | Pi health: CPU, memory, disks, temperature | On | Nothing |
 | Speedtest | On, every 4 hours | Plan speed, to estimate the data each test uses |
 | Traffic capture and protocol breakdown (ntopng) | On when a working mirror is detected | A switch or router with port mirroring, and a second network interface on the Pi |
@@ -154,11 +154,13 @@ The repo holds code and templates only. No file in the repo holds a value specif
 | Key | Example | Set by |
 |---|---|---|
 | `HOMEWAN_CONFIG_VERSION` | `1` | Installer |
+| `GOALS` | `speed,usage,apps,cap,health` | Interview, phase 1 |
 | `LAYOUT` | `wan_mirror`, `lan_mirror` or `none` | Interview |
 | `CAPTURE_IFACE` | `eth0` | Interview, from detected interfaces |
 | `MGMT_IFACE` | `eth1` | Interview, defaults to the interface with the lowest-metric default route |
 | `LAN_SUBNET` | `192.168.1.0/24` | Detected from `MGMT_IFACE` |
 | `WAN_ENCAP` | `none` or `pppoe` | Mirror test |
+| `MIRROR_TEST` | `WAN`, `LAN`, `NO_PACKETS`, `NO_ECHO`, `OTHER` or `skipped` | Mirror test result |
 | `TZ` | `Australia/Brisbane` | Detected, confirmed |
 | `DATA_DIR` | `/var/lib/homewan` | Interview |
 | `INFLUX_ORG` | `homewan` | Default, editable |
@@ -171,16 +173,19 @@ The repo holds code and templates only. No file in the repo holds a value specif
 | `CAP_ENABLED` | `yes` or `no` | Interview |
 | `CAP_COUNTS` | `down` or `down_up` | Interview |
 | `CAP_PERIOD` | `monthly`, `rolling_30` or `daily` | Interview |
-| `CAP_RESET_DAY` | `1` for monthly; a start date for `rolling_30` | Interview |
+| `CAP_RESET_DAY` | `1`, monthly periods only | Interview |
+| `CAP_START_DATE` | `2026-10-01`, `rolling_30` periods only | Interview |
+| `CAP_SPLIT` | `yes` or `no` | Interview |
 | `CAP_GB` | `500`. The total allowance when the plan has no peak and off-peak split. | Interview |
 | `CAP_PEAK_GB`, `CAP_OFFPEAK_GB` | `100`, `200` | Interview, split plans only |
 | `CAP_PEAK_HOURS` | `07:00-01:00` | Interview, split plans only |
 | `CAP_OVER_ACTION` | `slowed`, `charged` or `cut_off` | Interview |
 | `CAP_ADJUST_PERCENT` | `0` | Interview, optional |
 | `CAP_WARNINGS` | `yes` or `no` | Interview |
-| `REPORT_SCHEDULE` | `Mon 08:00` | Interview |
+| `REPORT_DAY`, `REPORT_TIME` | `Mon`, `08:00`, in `TZ` | Interview |
 | `REPORT_TO` | `someone@example.com` | Interview, comma-separated list allowed |
-| `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURITY`, `SMTP_USER`, `SMTP_FROM` | `smtp.gmail.com`, `465`, `ssl` | Interview, from a provider preset or custom |
+| `SMTP_PRESET` | `gmail`, `fastmail`, `icloud` or `custom` | Interview |
+| `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURITY`, `SMTP_USER`, `SMTP_FROM` | `smtp.gmail.com`, `465`, `ssl` | Interview, from the preset or typed for custom |
 | `LOCATION_NAME`, `LOCATION_LAT`, `LOCATION_LON` | `Brisbane`, `-27.47`, `153.03` | Interview, looked up from a town name through the Open-Meteo geocoding API |
 | `DISK_MOUNTS` | `/,/media/usb` | Interview, from detected real filesystems |
 | `NTOPNG_PORT` | `3001` | Default, moved when in use |
@@ -268,7 +273,7 @@ The installer explains that homewan's count can differ from the ISP's meter by a
 
 1. Speedtest interval, with the estimated monthly data use for the plan speed. Example: a 100/20 Mbps plan uses about 150 MB a test, so every 4 hours costs about 27 GB a month.
 2. Report recipient, day and time.
-3. Email provider: Gmail, Outlook.com, Fastmail or custom. Each preset fills host, port and security, and shows how to create an app password. The installer sends a test email from the host before continuing.
+3. Email provider: Gmail, Fastmail, iCloud Mail or custom. Outlook.com is left out: since September 2024 it requires OAuth sign-in for SMTP, which homewan does not support. Each preset fills host, port and security, and shows how to create an app password. The installer sends a test email from the host before continuing.
 4. Outdoor temperature: optional, by town name.
 5. Grafana: optional.
 6. Shared metrics store: optional, with the InfluxDB org name and bind address.

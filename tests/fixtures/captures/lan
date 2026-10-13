@@ -1,0 +1,2 @@
+20:32:54.000001 02:00:00:00:00:02 > 02:00:00:00:00:cc, ethertype IPv4 (0x0800), length 98: 192.168.1.10 > 9.9.9.9: ICMP echo request, id 7, seq 1, length 64
+20:32:54.500001 02:00:00:00:00:02 > 02:00:00:00:00:cc, ethertype IPv4 (0x0800), length 98: 192.168.1.10 > 9.9.9.9: ICMP echo request, id 7, seq 2, length 64

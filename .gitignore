@@ -19,3 +19,6 @@ venv/
 .DS_Store
 *.swp
 *.bak
+
+# Delivery archives
+*.tar.gz

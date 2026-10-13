@@ -1,0 +1,4 @@
+20:32:54.000001 02:00:00:00:00:aa > 02:00:00:00:00:bb, ethertype IPv4 (0x0800), length 98: 203.0.113.7 > 9.9.9.9: ICMP echo request, id 7, seq 1, length 64
+20:32:54.020001 02:00:00:00:00:bb > 02:00:00:00:00:aa, ethertype IPv4 (0x0800), length 98: 9.9.9.9 > 203.0.113.7: ICMP echo reply, id 7, seq 1, length 64
+20:32:54.500001 02:00:00:00:00:aa > 02:00:00:00:00:bb, ethertype IPv4 (0x0800), length 98: 203.0.113.7 > 9.9.9.9: ICMP echo request, id 7, seq 2, length 64
+20:32:55.000001 02:00:00:00:00:aa > 02:00:00:00:00:bb, ethertype IPv4 (0x0800), length 1514: 203.0.113.7.51234 > 198.51.100.20.443: Flags [.], length 1448

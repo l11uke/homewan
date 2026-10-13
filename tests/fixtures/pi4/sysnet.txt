@@ -1,0 +1,5 @@
+lo virtual wired
+eth0 physical wired
+eth1 physical wired
+wlan0 physical wireless
+docker0 virtual wired

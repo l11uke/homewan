@@ -1,0 +1,21 @@
+# Site configuration and secrets never belong in this repo
+*.env
+!*.env.example
+site.conf
+devices.csv
+answers*
+rendered/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+.pytest_cache/
+
+# Editors and OS
+.vscode/
+.idea/
+.DS_Store
+*.swp
+*.bak

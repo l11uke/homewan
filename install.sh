@@ -19,6 +19,8 @@ source "$HOMEWAN_ROOT/lib/common.sh"
 source "$HOMEWAN_ROOT/lib/ui.sh"
 # shellcheck source=lib/config.sh
 source "$HOMEWAN_ROOT/lib/config.sh"
+# shellcheck source=lib/packages.sh
+source "$HOMEWAN_ROOT/lib/packages.sh"
 # shellcheck source=lib/checks.sh
 source "$HOMEWAN_ROOT/lib/checks.sh"
 # shellcheck source=lib/mirror_test.sh

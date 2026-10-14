@@ -3,7 +3,9 @@
 # Phase 0: read-only checks of the Pi. Nothing here changes the system.
 
 NET_LINES=()       # netinfo.py output, one interface per line
-FS_LINES=()        # fsinfo.py output, one filesystem per line
+FS_LINES=()        # fsinfo.py output, one mounted filesystem per line
+UNMOUNTED_LINES=() # diskinfo.py unmounted: filesystems on attached drives, not mounted
+DISK_LINES=()      # diskinfo.py disks: whole drives that might report SMART
 PORTS_IN_USE=" "   # space-padded list of listening TCP ports
 OS_PRETTY=""; OS_ID=""; OS_VERSION=""; ARCH=""; RAM_MB=0
 DOCKER_VER=""; NTP_SYNC=""; TZ_DETECTED=""; OLD_STACK=""
@@ -25,6 +27,8 @@ checks_run() {
     # Network and storage
     mapfile -t NET_LINES < <(py netinfo.py "$(_fixture_dir)")
     mapfile -t FS_LINES < <(py fsinfo.py "$(_fixture_dir)")
+    mapfile -t UNMOUNTED_LINES < <(py diskinfo.py unmounted "$(_fixture_dir)")
+    mapfile -t DISK_LINES < <(py diskinfo.py disks "$(_fixture_dir)")
 
     # Ports
     while read -r line; do
@@ -105,6 +109,11 @@ checks_verdict() {
     for l in "${FS_LINES[@]}"; do
         IFS=$'\t' read -r target fstype src size avail _ <<<"$l"
         text+="  $target  $fstype  ${avail} GB free of ${size} GB"$'\n'
+    done
+    local dev uuid label model
+    for l in "${UNMOUNTED_LINES[@]}"; do
+        IFS=$'\t' read -r dev fstype size uuid label model _ <<<"$l"
+        text+="  $dev  $fstype  ${size} GB  $(orelse "$label" "")  $(orelse "$model" ""): attached, not mounted"$'\n'
     done
     if ((${#CHECK_WARNINGS[@]})); then
         text+=$'\n'"Warnings:"$'\n'

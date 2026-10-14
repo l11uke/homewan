@@ -1,0 +1,3 @@
+usb-Example_External_HDD_0000000001-0:0 sda
+usb-Example_USB_Stick_0000000002-0:0 sdb
+mmc-SD32G_0x00000003 mmcblk0

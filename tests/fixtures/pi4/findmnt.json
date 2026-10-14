@@ -1,4 +1,4 @@
-{"filesystems":[{"target":"/","source":"/dev/mmcblk0p2","fstype":"ext4","size":31000000000,"avail":12900000000,
-  "children":[{"target":"/boot/firmware","source":"/dev/mmcblk0p1","fstype":"vfat","size":530000000,"avail":446000000},
-              {"target":"/proc","source":"proc","fstype":"proc","size":0,"avail":0},
-              {"target":"/media/usb","source":"/dev/sda1","fstype":"ntfs3","size":2000000000000,"avail":1800000000000}]}]}
+{"filesystems":[{"target":"/","source":"/dev/mmcblk0p2","fstype":"ext4","size":31000000000,"avail":12900000000,"uuid":"0b1c2d3e-0000-4000-8000-000000000002",
+  "children":[{"target":"/boot/firmware","source":"/dev/mmcblk0p1","fstype":"vfat","size":530000000,"avail":446000000,"uuid":"AB12-CD34"},
+              {"target":"/proc","source":"proc","fstype":"proc","size":0,"avail":0,"uuid":null},
+              {"target":"/media/usb","source":"/dev/sda1","fstype":"ntfs3","size":2000000000000,"avail":1800000000000,"uuid":"1A2B3C4D5E6F7A8B"}]}]}

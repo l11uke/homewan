@@ -1,6 +1,6 @@
 # homewan specification
 
-Version 0.4 (draft for review), 2026-10-14
+Version 0.5 (draft for review), 2026-10-14
 
 ## 1. Purpose
 
@@ -15,7 +15,10 @@ An installer interviews the user, checks their hardware and network, and produce
 | Feature | Default | Needs |
 |---|---|---|
 | Weekly email report | On | An SMTP account (Gmail, Fastmail, iCloud Mail or any SMTP server) |
-| Pi health: CPU, memory, disks, temperature | On | Nothing |
+| Pi health: CPU, memory, temperature | On | Nothing |
+| Drive space for every mounted drive, including drives added later | On | Nothing |
+| Missing drive warnings, in the report and by email the same day | On when a drive other than the SD card is mounted | Nothing |
+| Drive health and temperature (SMART) | Offered when a drive responds | A drive and USB adapter that pass SMART through; smartmontools |
 | Speedtest | On, every 4 hours | Plan speed, to estimate the data each test uses |
 | Traffic capture and protocol breakdown (ntopng) | On when a working mirror is detected | A switch or router with port mirroring, and a second network interface on the Pi |
 | Per-device usage | On with layout B only | Layout B wiring |
@@ -187,7 +190,11 @@ The repo holds code and templates only. No file in the repo holds a value specif
 | `SMTP_PRESET` | `gmail`, `fastmail`, `icloud` or `custom` | Interview |
 | `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURITY`, `SMTP_USER`, `SMTP_FROM` | `smtp.gmail.com`, `465`, `ssl` | Interview, from the preset or typed for custom |
 | `LOCATION_NAME`, `LOCATION_LAT`, `LOCATION_LON` | `Brisbane`, `-27.47`, `153.03` | Interview, looked up from a town name through the Open-Meteo geocoding API |
-| `DISK_MOUNTS` | `/,/media/usb` | Interview, from detected real filesystems |
+| `DISK_MODE` | `all` or `selected` | Interview |
+| `DISK_MOUNTS` | `/,/media/usb`, `selected` mode only | Interview, from mounted filesystems |
+| `DISK_EXPECTED` | `/media/usb=1A2B3C4D5E6F7A8B` | Interview. Mount point and filesystem UUID of each drive that should always be connected. |
+| `DISK_WARNINGS` | `yes` or `no` | Interview |
+| `SMART_DEVICES` | `usb-Example_HDD_0001-0:0:sat` | Interview. `/dev/disk/by-id` name and smartctl device type of each drive whose health the report shows. |
 | `NTOPNG_PORT` | `3001` | Default, moved when in use |
 | `GRAFANA_PORT` | `3000` | Default, moved when in use |
 | `REDIS_PORT` | `6380` | Default, moved when in use |
@@ -285,6 +292,13 @@ The installer explains that homewan's count can differ from the ISP's meter by a
 3. Refuse NTFS and exFAT for the data folder. For any folder under a removable mount, add a systemd mount dependency, so the stack waits for the drive and never writes into an empty mount-point folder.
 4. Ask the retention period, with an estimated size.
 
+#### 7.6.1 Drives
+
+1. List filesystems on attached drives that are not mounted (from `lsblk`). For each, show the commands that mount it now and at every boot: a mount folder under `/media`, an `/etc/fstab` line using the filesystem UUID with `nofail` and `x-systemd.device-timeout=10s`, and `mount -a`. NTFS uses the kernel `ntfs3` driver and the invoking user's uid and gid. The installer never edits `/etc/fstab`. The user continues, or saves and quits to mount the drives first.
+2. Ask which drives the report covers: every mounted drive, including drives mounted later (default), or a chosen list.
+3. Ask which drives should always be connected. Each is recorded as mount point and filesystem UUID, so a different drive mounted at the same folder counts as missing. Ask whether to email the day one goes missing.
+4. List whole drives other than SD cards and eMMC. Offer a health test: install smartmontools after asking, query each drive with `smartctl` (automatic device type, then SAT for USB adapters), show health and temperature for drives that respond, and ask which to include. Drives that do not respond are listed with the reason.
+
 ### 7.7 Phase 5: summary
 
 One screen lists every choice, the ports, the data folder and the expected data use. Confirming writes `site.conf` and `secrets.env`. Nothing else has changed up to this point.
@@ -340,7 +354,7 @@ The `tools` image downloads the Ookla CLI tarball for the platform at build time
 
 ### 8.3 Telegraf
 
-`hostname = "homewan"` in the agent section, so every point carries the same host tag across container rebuilds. Disks come from `DISK_MOUNTS` through a read-only `/hostfs` mount with `rslave` propagation. Telegraf runs as root so it can read mounts under `/media`.
+`hostname = "homewan"` in the agent section, so every point carries the same host tag across container rebuilds. Drives come through a read-only `/hostfs` mount with `rslave` propagation, so drives mounted after Telegraf starts appear without a restart. With `DISK_MODE=all`, `inputs.disk` reports every real filesystem (ignoring tmpfs, overlay, squashfs and similar); with `selected`, only `DISK_MOUNTS`. Telegraf runs as root so it can read mounts under `/media`. With `SMART_DEVICES` set, `inputs.smart` reads those devices through smartctl, which needs the devices passed into the container.
 
 ### 8.4 Report
 
@@ -356,6 +370,9 @@ The report is a Python package in the `tools` image. Each section is a module th
 | CPU, memory and disk use | health |
 | Storage per disk | health |
 | CPU temperature, with outdoor temperature when enabled | health |
+| Missing drives: each expected drive that is absent, or replaced by a different filesystem | `DISK_EXPECTED` set |
+| New drives: mounted drives that are not on the expected list, with the command to add them | always |
+| Drive health: SMART status and temperature per drive, and a warning for any failing attribute | `SMART_DEVICES` set |
 
 SMTP settings come from `site.conf`. Charts carry the local time zone from `TZ`.
 
@@ -365,15 +382,19 @@ Flux rules carried over from the previous project:
 2. A bare `group()` goes directly before `top()`.
 3. The InfluxDB client timeout is 60 seconds.
 
-### 8.5 Data cap check
+### 8.5 Daily check
 
-A daily timer, `homewan-capcheck.timer`, runs at 07:00 when `CAP_WARNINGS=yes`. It computes usage for the current period with the same query as the report, applies `CAP_ADJUST_PERCENT`, and emails once per period for each of these events:
+A daily timer, `homewan-daily.timer`, runs at 07:00 when `CAP_WARNINGS=yes` or `DISK_WARNINGS=yes`.
+
+Drive checks, with `DISK_WARNINGS=yes`: email once when an expected drive is missing or replaced, and once when it returns. With `SMART_DEVICES` set, also email once when a drive's SMART status changes to failing.
+
+Data cap checks, with `CAP_WARNINGS=yes`: compute usage for the current period with the same query as the report, apply `CAP_ADJUST_PERCENT`, and email once per period for each of these events:
 
 1. Usage crosses 80% of an allowance.
 2. Usage crosses 100% of an allowance.
 3. The 7-day projection exceeds an allowance before the reset date, sent at most once per period.
 
-Each event is recorded in a small state file in `DATA_DIR`, so a warning never repeats within a period. Split plans track peak and off-peak separately.
+Each event is recorded in a small state file in `DATA_DIR`, so a warning never repeats. Split plans track peak and off-peak separately.
 
 ### 8.6 Shared metrics store
 

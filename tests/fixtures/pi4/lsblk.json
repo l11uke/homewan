@@ -1,0 +1,9 @@
+{"blockdevices":[
+ {"name":"mmcblk0","path":"/dev/mmcblk0","type":"disk","fstype":null,"size":31914983424,"mountpoints":[null],"uuid":null,"label":null,"tran":null,"model":null,
+  "children":[{"name":"mmcblk0p1","path":"/dev/mmcblk0p1","type":"part","fstype":"vfat","size":536870912,"mountpoints":["/boot/firmware"],"uuid":"AB12-CD34","label":"bootfs"},
+              {"name":"mmcblk0p2","path":"/dev/mmcblk0p2","type":"part","fstype":"ext4","size":31373049856,"mountpoints":["/"],"uuid":"0b1c2d3e-0000-4000-8000-000000000002","label":"rootfs"}]},
+ {"name":"sda","path":"/dev/sda","type":"disk","fstype":null,"size":2000398934016,"mountpoints":[null],"uuid":null,"label":null,"tran":"usb","model":"Example External HDD  ",
+  "children":[{"name":"sda1","path":"/dev/sda1","type":"part","fstype":"ntfs","size":2000396836864,"mountpoints":["/media/usb"],"uuid":"1A2B3C4D5E6F7A8B","label":"HDD"}]},
+ {"name":"sdb","path":"/dev/sdb","type":"disk","fstype":null,"size":64023257088,"mountpoints":[null],"uuid":null,"label":null,"tran":"usb","model":"Example USB Stick",
+  "children":[{"name":"sdb1","path":"/dev/sdb1","type":"part","fstype":"ext4","size":64022208512,"mountpoints":[null],"uuid":"5e6f7a8b-0000-4000-8000-00000000000b","label":"backup"}]},
+ {"name":"zram0","path":"/dev/zram0","type":"disk","fstype":"swap","size":2000000000,"mountpoints":["[SWAP]"]}]}

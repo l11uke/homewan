@@ -38,5 +38,9 @@ py() { python3 -I "$HOMEWAN_PY/$1" "${@:2}"; }
 # Join arguments with a separator: join , a b c -> a,b,c
 join() { local IFS="$1"; shift; printf '%s' "$*"; }
 
+# orelse VALUE FALLBACK: VALUE, or FALLBACK when VALUE is "-" or empty
+# (the helper scripts print "-" for unknown fields).
+orelse() { if [[ -z "$1" || "$1" == "-" ]]; then printf '%s' "$2"; else printf '%s' "$1"; fi; }
+
 # True when a comma-separated list contains an item.
 list_has() { [[ ",$1," == *",$2,"* ]]; }

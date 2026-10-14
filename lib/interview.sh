@@ -617,17 +617,7 @@ An SSD or hard drive formatted ext4 lasts longest. The SD card works; constant s
 The weekly report needs 7 days; data cap tracking needs one full period (up to 31 days)." "$(prev RETENTION_DAYS 90)" "${ritems[@]}"
     ANS[RETENTION_DAYS]="$UI_REPLY"
 
-    local citems=() pm; pm="$(prev DISK_MOUNTS)"
-    for l in "${FS_LINES[@]}"; do
-        IFS=$'\t' read -r target fstype src size avail ok why <<<"$l"
-        citems+=("$target" "$target ($fstype, $size GB)" "$( [[ -z "$pm" ]] || list_has "$pm" "$target" && printf on || printf off)")
-    done
-    if ((${#citems[@]})); then
-        ui_checklist DISK_MOUNTS "Pi health" "Which disks should the report show free space for?" "${citems[@]}"
-        ANS[DISK_MOUNTS]="$UI_REPLY"
-    else
-        ANS[DISK_MOUNTS]=/
-    fi
+    phase_drives
 
     # Ports: keep last run's choice, else the first free one.
     ANS[INFLUX_PORT]="$(prev INFLUX_PORT "$(next_free_port 8086)")"
@@ -636,12 +626,148 @@ The weekly report needs 7 days; data cap tracking needs one full period (up to 3
     ANS[REDIS_PORT]="$(prev REDIS_PORT "$(next_free_port 6380)")"
 }
 
+# ---------- drives: discovery, monitoring, missing-drive warnings, SMART ----------
+
+# fstab_hint DEVICE FSTYPE UUID LABEL -> commands to mount a drive at boot
+fstab_hint() {
+    local dev="$1" fstype="$2" uuid="$3" label="$4" name opts type pass=0
+    name="$(orelse "$label" "" | tr -c 'A-Za-z0-9_-' '_' | sed 's/_*$//')"
+    [[ -n "$name" ]] || name="disk-${uuid:0:8}"
+    local uid="${SUDO_UID:-1000}" gid="${SUDO_GID:-1000}"
+    case "$fstype" in
+        ext2|ext3|ext4|xfs|btrfs|f2fs) type="$fstype"; opts="defaults,nofail,noatime"; pass=2 ;;
+        ntfs) type=ntfs3; opts="defaults,nofail,noatime,uid=$uid,gid=$gid" ;;
+        exfat|vfat) type="$fstype"; opts="defaults,nofail,uid=$uid,gid=$gid,umask=022" ;;
+        *) type="$fstype"; opts="defaults,nofail" ;;
+    esac
+    opts+=",x-systemd.device-timeout=10s"
+    cat <<EOF
+$dev ($fstype, label $(orelse "$label" none)):
+  sudo mkdir -p /media/$name
+  echo 'UUID=$uuid /media/$name $type $opts 0 $pass' | sudo tee -a /etc/fstab
+  sudo systemctl daemon-reload && sudo mount -a && df -h /media/$name
+EOF
+}
+
+phase_drives() {
+    local l target fstype src size avail ok why uuid
+
+    # 1. Drives that are plugged in but not mounted.
+    if ((${#UNMOUNTED_LINES[@]})); then
+        local hints="" dev label
+        for l in "${UNMOUNTED_LINES[@]}"; do
+            IFS=$'\t' read -r dev fstype size uuid label _ <<<"$l"
+            hints+="$(fstab_hint "$dev" "$fstype" "$uuid" "$label")"$'\n\n'
+        done
+        ui_msg - "Drives not mounted" "These drives are plugged in but not mounted, so homewan cannot see their free space:
+
+${hints}Each block mounts one drive now and at every boot. 'nofail' and the 10-second timeout let the Pi boot normally when the drive is unplugged. Check the folder name under /media before you run them.
+
+homewan never edits /etc/fstab itself."
+        ui_menu UNMOUNTED_ACTION "Drives not mounted" "What next?" continue \
+            continue "Continue; I'll mount them later (they appear in the report once mounted)" \
+            quit     "Save my answers and quit, to mount them first"
+        if [[ "$UI_REPLY" == quit ]]; then save_draft; log "Answers saved. Mount the drives, then run the installer again."; exit 10; fi
+    fi
+
+    # 2. Which drives the report covers.
+    ui_menu DISK_MODE "Drives in the report" "Which drives should the report show space for?" "$(prev DISK_MODE all)" \
+        all      "Every mounted drive, including ones added later (recommended)" \
+        selected "Only the drives I pick now"
+    ANS[DISK_MODE]="$UI_REPLY"
+    ANS[DISK_MOUNTS]=""
+    if [[ "${ANS[DISK_MODE]}" == selected ]]; then
+        local citems=() pm; pm="$(prev DISK_MOUNTS)"
+        for l in "${FS_LINES[@]}"; do
+            IFS=$'\t' read -r target fstype src size avail ok why uuid <<<"$l"
+            citems+=("$target" "$target ($fstype, $size GB)" "$( [[ -z "$pm" ]] || list_has "$pm" "$target" && printf on || printf off)")
+        done
+        ui_checklist DISK_MOUNTS "Drives in the report" "Tick the drives the report should show:" "${citems[@]}"
+        ANS[DISK_MOUNTS]="${UI_REPLY:-/}"
+    fi
+
+    # 3. Drives that should always be connected.
+    ANS[DISK_EXPECTED]=""; ANS[DISK_WARNINGS]=no
+    local eitems=() pe; pe="$(prev DISK_EXPECTED)"
+    for l in "${FS_LINES[@]}"; do
+        IFS=$'\t' read -r target fstype src size avail ok why uuid <<<"$l"
+        [[ "$target" == / ]] && continue
+        local on=on; [[ -n "$pe" && ",$pe," != *",$target="* ]] && on=off
+        eitems+=("$target=$uuid" "$target ($fstype, $size GB)" "$on")
+    done
+    if ((${#eitems[@]})); then
+        ui_checklist DISK_EXPECTED "Missing drive warnings" "Which drives should always be connected?
+
+The report warns when one of them is missing or a different drive is mounted in its place. homewan recognises each drive by its filesystem ID." "${eitems[@]}"
+        ANS[DISK_EXPECTED]="$UI_REPLY"
+        if [[ -n "${ANS[DISK_EXPECTED]}" ]]; then
+            ui_yesno DISK_WARNINGS "Missing drive warnings" "Also email a warning the day one of these drives goes missing, without waiting for the weekly report?
+
+homewan checks once a day and emails once per missing drive, plus once when it comes back." "$(prev DISK_WARNINGS yes)"
+            ANS[DISK_WARNINGS]="$UI_REPLY"
+        fi
+    fi
+
+    # 4. Drive health (SMART).
+    ANS[SMART_DEVICES]=""
+    if ((${#DISK_LINES[@]} == 0)); then return; fi
+    local list="" dl dev byid model dsize
+    for dl in "${DISK_LINES[@]}"; do
+        IFS=$'\t' read -r dev byid model _ dsize <<<"$dl"
+        list+="  $dev  $(orelse "$model" "unknown model"), $dsize GB"$'\n'
+    done
+    local dflt=yes; [[ -n "$(prev SMART_CHECK)" ]] && dflt="$(prev SMART_CHECK)"
+    if ! ui_yesno SMART_CHECK "Drive health" "Many hard drives and SSDs report their own health and temperature (SMART). The report can show it, and warn when a drive starts failing.
+
+Drives found:
+$list
+SD cards cannot report health. Test which of these drives respond?" "$dflt"; then
+        ANS[SMART_CHECK]=no; return
+    fi
+    ANS[SMART_CHECK]=yes
+    ensure_pkg smartctl smartmontools INSTALL_SMARTMONTOOLS "Testing drive health needs smartmontools." || return
+    ui_info "Asking each drive for its health..."
+    local sitems=() silent="" r rtype health temp ps; ps="$(prev SMART_DEVICES)"
+    for dl in "${DISK_LINES[@]}"; do
+        IFS=$'\t' read -r dev byid model _ dsize <<<"$dl"
+        r="$(py smart.py "$dev")"
+        if [[ "$r" == ok* ]]; then
+            IFS=$'\t' read -r _ rtype health temp <<<"$r"
+            local id; id="$(orelse "$byid" "${dev#/dev/}"):$rtype"
+            local on=on
+            [[ -n "$ps" && ",$ps," != *",$id,"* ]] && on=off
+            sitems+=("$id" "$(orelse "$model" "$dev") ($dev): $health$( [[ $temp != - ]] && printf ', %s °C' "$temp")" "$on")
+        else
+            silent+="  $(orelse "$model" "$dev") ($dev): ${r#none$'\t'}"$'\n'
+        fi
+    done
+    if ((${#sitems[@]} == 0)); then
+        ui_msg - "Drive health" "None of the drives responded:
+$silent
+The report leaves drive health out. Free space and missing-drive warnings still work."
+        return
+    fi
+    ui_checklist SMART_DEVICES "Drive health" "These drives report their health. Tick the ones the report should include.${silent:+
+
+No response from:
+$silent}" "${sitems[@]}"
+    ANS[SMART_DEVICES]="$UI_REPLY"
+}
+
 # ---------- phase 5: summary ----------
 
 _label() { # _label VALUE TAG LABEL [TAG LABEL...]
     local v="$1"; shift
     while (($#)); do [[ "$1" == "$v" ]] && { printf '%s' "$2"; return; }; shift 2; done
     printf '%s' "$v"
+}
+
+expected_summary() {
+    if [[ -z "${ANS[DISK_EXPECTED]}" ]]; then printf 'none'; return; fi
+    local e out=()
+    IFS=',' read -ra _e <<<"${ANS[DISK_EXPECTED]}"
+    for e in "${_e[@]}"; do out+=("${e%%=*}"); done
+    printf '%s, warning email %s' "$(join , "${out[@]}" | sed 's/,/, /g')" "${ANS[DISK_WARNINGS]}"
 }
 
 summary_text() {
@@ -680,7 +806,9 @@ Features
 Storage
   Data folder:       ${ANS[DATA_DIR]}
   Keep data for:     $( [[ ${ANS[RETENTION_DAYS]} == 0 ]] && printf 'ever' || printf '%s days' "${ANS[RETENTION_DAYS]}")
-  Disks in report:   ${ANS[DISK_MOUNTS]//,/, }
+  Drives in report:  $( [[ ${ANS[DISK_MODE]} == all ]] && printf 'every mounted drive' || printf '%s' "${ANS[DISK_MOUNTS]//,/, }")
+  Must be connected: $(expected_summary)
+  Drive health:      $( [[ -n ${ANS[SMART_DEVICES]} ]] && printf '%s' "${ANS[SMART_DEVICES]//,/, }" || printf off)
   Ports:             database ${ANS[INFLUX_PORT]}$( [[ ${ANS[LAYOUT]} != none ]] && printf ', ntopng %s' "${ANS[NTOPNG_PORT]}")"
     printf '%s' "$s"
 }

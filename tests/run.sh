@@ -69,7 +69,10 @@ expect SPEEDTEST_INTERVAL_HOURS 4
 expect LOCATION_NAME "Brisbane, Queensland, AU"; expect LOCATION_LAT -27.4679
 expect SMTP_HOST smtp.gmail.com; expect SMTP_FROM sender@example.com
 expect INFLUX_ORG homelab; expect INFLUX_BIND 127.0.0.1; expect TZ Australia/Brisbane
-expect DATA_DIR /var/lib/homewan; expect RETENTION_DAYS 90; expect DISK_MOUNTS /,/media/usb
+expect DATA_DIR /var/lib/homewan; expect RETENTION_DAYS 90
+expect DISK_MODE all; expect DISK_MOUNTS ""
+expect DISK_EXPECTED "/media/usb=1A2B3C4D5E6F7A8B"; expect DISK_WARNINGS yes
+expect SMART_DEVICES "usb-Example_External_HDD_0000000001-0:0:sat"
 expect INFLUX_PORT 8086; expect NTOPNG_PORT 3001; expect GRAFANA_PORT 3000
 expect_secret_set INFLUX_OPERATOR_TOKEN 32; expect_secret_set SMTP_PASSWORD; expect_secret_set GRAFANA_ADMIN_PASSWORD 32
 expect_mode "$ETC/secrets.env" 600; expect_mode "$ETC/site.conf" 644
@@ -132,6 +135,27 @@ run_case custom_smtp default "${BASE[@]}" \
 expect_rc 0
 expect SMTP_HOST mail.example.net; expect SMTP_PORT 587; expect SMTP_SECURITY starttls
 expect LOCATION_LAT 51.5; expect LOCATION_LON -0.12; expect LAYOUT none
+
+echo "Drives: pick specific drives, no missing-drive warnings, no health checks"
+run_case drives_selected default "${BASE[@]}" GOALS=speed,health \
+    DISK_MODE=selected DISK_MOUNTS=/ DISK_EXPECTED= SMART_CHECK=no
+expect_rc 0
+expect DISK_MODE selected; expect DISK_MOUNTS /; expect DISK_EXPECTED ""; expect DISK_WARNINGS no; expect SMART_DEVICES ""
+
+echo "Drives: unmounted drive found, quit to mount it, resume later"
+run_case drives_quit default "${BASE[@]}" GOALS=speed,health UNMOUNTED_ACTION=quit
+expect_rc 10
+[[ -f "$ETC/answers.draft" && ! -f "$ETC/site.conf" ]] && ok || fail "draft not saved on quit"
+HOMEWAN_TEST=1 bash -c "source '$ROOT/lib/common.sh'; source '$ROOT/lib/interview.sh'; fstab_hint /dev/sdb1 ext4 5e6f7a8b-0000-4000-8000-00000000000b backup" \
+    | grep -q "UUID=5e6f7a8b-0000-4000-8000-00000000000b /media/backup ext4 defaults,nofail,noatime,x-systemd.device-timeout=10s 0 2" && ok || fail "ext4 fstab hint wrong"
+rerun_case RESUME_DRAFT=yes UNMOUNTED_ACTION=continue
+expect_rc 0
+expect REPORT_TO someone@example.com; expect GOALS speed,health
+[[ ! -f "$ETC/answers.draft" ]] && ok || fail "draft left after resume"
+
+echo "Drives: NTFS fstab hint uses the ntfs3 driver"
+HOMEWAN_TEST=1 bash -c "source '$ROOT/lib/common.sh'; source '$ROOT/lib/interview.sh'; SUDO_UID=1000 SUDO_GID=1000 fstab_hint /dev/sdc1 ntfs ABCD 'My Drive'" > "$WORK/hint"
+grep -q "UUID=ABCD /media/My_Drive ntfs3 defaults,nofail,noatime,uid=1000,gid=1000,x-systemd.device-timeout=10s 0 0" "$WORK/hint" && ok || fail "ntfs hint: $(cat "$WORK/hint")"
 
 echo "Bad answers are rejected"
 run_case bad_email default "${BASE[@]}" GOALS=speed,health REPORT_TO=not-an-address

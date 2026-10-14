@@ -1,7 +1,7 @@
 """List real filesystems as tab-separated lines.
 
 Columns: mount point, filesystem type, device, size GB, free GB,
-data_ok (yes|no), reason.
+data_ok (yes|no), reason, filesystem UUID (or -).
 
 Reads `findmnt -J -b`, or findmnt.json from a fixture directory.
 """
@@ -26,7 +26,7 @@ def main():
         with open(os.path.join(fixtures, "findmnt.json")) as f:
             data = json.load(f)
     else:
-        out = subprocess.run(["findmnt", "-J", "-b", "-o", "TARGET,SOURCE,FSTYPE,SIZE,AVAIL"],
+        out = subprocess.run(["findmnt", "-J", "-b", "-o", "TARGET,SOURCE,FSTYPE,SIZE,AVAIL,UUID"],
                              capture_output=True, text=True).stdout
         data = json.loads(out or '{"filesystems": []}')
     for n in walk(data.get("filesystems", [])):
@@ -45,7 +45,8 @@ def main():
             ok, why = "no", "NTFS can corrupt a database after a power cut and handles Linux permissions poorly"
         else:
             ok, why = "no", f"{fstype} has no Linux permissions and corrupts easily"
-        print(f"{target}\t{fstype}\t{source}\t{size:.0f}\t{avail:.1f}\t{ok}\t{why}")
+        uuid = n.get("uuid") or "-"
+        print(f"{target}\t{fstype}\t{source}\t{size:.0f}\t{avail:.1f}\t{ok}\t{why}\t{uuid}")
 
 
 if __name__ == "__main__":

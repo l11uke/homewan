@@ -24,17 +24,6 @@ mirror_test() {
     IFS=$'\t' read -r MIRROR_VERDICT MIRROR_SRC MIRROR_PACKETS MIRROR_PPPOE <<<"$result"
 }
 
-# Make sure tcpdump is present. The only system change before the summary,
-# and only after asking.
 ensure_tcpdump() {
-    is_test && return 0
-    command -v tcpdump >/dev/null && return 0
-    if ui_yesno INSTALL_TCPDUMP "Install tcpdump" "The mirror test needs tcpdump, a small packet capture tool.
-
-Install it now? This is the only change the installer makes before you confirm the summary." yes; then
-        ui_info "Installing tcpdump..."
-        apt-get install -y -q tcpdump >/dev/null 2>&1 || { ui_msg - "Install failed" "apt-get could not install tcpdump. Check the Pi's internet connection and try again."; return 1; }
-        return 0
-    fi
-    return 1
+    ensure_pkg tcpdump tcpdump INSTALL_TCPDUMP "The mirror test needs tcpdump, a small packet capture tool."
 }

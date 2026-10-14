@@ -157,6 +157,17 @@ echo "Drives: NTFS fstab hint uses the ntfs3 driver"
 HOMEWAN_TEST=1 bash -c "source '$ROOT/lib/common.sh'; source '$ROOT/lib/interview.sh'; SUDO_UID=1000 SUDO_GID=1000 fstab_hint /dev/sdc1 ntfs ABCD 'My Drive'" > "$WORK/hint"
 grep -q "UUID=ABCD /media/My_Drive ntfs3 defaults,nofail,noatime,uid=1000,gid=1000,x-systemd.device-timeout=10s 0 0" "$WORK/hint" && ok || fail "ntfs hint: $(cat "$WORK/hint")"
 
+echo "Ports in use: every service still gets its own port"
+run_case ports default "${BASE[@]}" GOALS=speed,health
+printf 'LISTEN 0 1 0.0.0.0:%s 0.0.0.0:*\n' 3000 3001 8086 6380 >> "$FX/ss"
+rm -rf "$ETC"; mkdir -p "$ETC"
+rerun_case "${BASE[@]}" GOALS=speed,health
+expect INFLUX_PORT 8087; expect NTOPNG_PORT 3002; expect GRAFANA_PORT 3003; expect REDIS_PORT 6381
+
+echo "Cap goal ticked but no data limit: the goal is dropped"
+run_case cap_no default "${BASE[@]}" GOALS=speed,usage,cap,health HAS_MIRROR=yes LAYOUT=wan_mirror CAP_ENABLED=no
+expect GOALS speed,usage,health; expect CAP_ENABLED no
+
 echo "Bad answers are rejected"
 run_case bad_email default "${BASE[@]}" GOALS=speed,health REPORT_TO=not-an-address
 [[ "$RC" != 0 ]] && grep -q "REPORT_TO rejected" "$WORK/$CASE/out" && ok || fail "bad email accepted"

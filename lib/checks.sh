@@ -48,12 +48,6 @@ checks_run() {
 
 port_free() { [[ "$PORTS_IN_USE" != *" $1 "* ]]; }
 
-# next_free_port START -> first free port at or above START
-next_free_port() {
-    local p="$1"
-    while ! port_free "$p"; do p=$((p + 1)); done
-    printf '%s' "$p"
-}
 
 # Field accessors for NET_LINES: net_field IFACE COLUMN(1-7)
 net_field() {

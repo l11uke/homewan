@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+### Fixes from the first preview on a Pi (homewan-004)
+
+- Ports: when the usual ports are taken, each service now gets its own free port. Before, ntopng and Grafana could both be given the same one.
+- Ticking "data cap" and then answering that the plan has no limit now drops the goal, so the report has no empty cap section.
+- The shared database screen shows the port other programs must use, and warns when it is not 8086.
+- In preview mode, the final screen says that saving writes settings only.
+
 ### Drives (homewan-003)
 
 - The installer lists drives that are plugged in but not mounted, with the exact `/etc/fstab` line and commands to mount each one at boot (`nofail`, 10-second timeout, `ntfs3` for NTFS). It never edits `/etc/fstab` itself.

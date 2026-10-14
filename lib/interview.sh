@@ -356,7 +356,10 @@ phase_cap() {
         return
     fi
     local dflt=no; goal cap && dflt=yes
-    ui_yesno CAP_ENABLED "Data cap" "Does your internet plan have a data limit?" "$(prev CAP_ENABLED "$dflt")" || return
+    if ! ui_yesno CAP_ENABLED "Data cap" "Does your internet plan have a data limit?" "$(prev CAP_ENABLED "$dflt")"; then
+        remove_goal cap
+        return
+    fi
     ANS[CAP_ENABLED]=yes
     goal cap || add_goal cap
 
@@ -415,7 +418,23 @@ SMTP_PRESETS=(
     "icloud|smtp.mail.me.com|587|starttls|iCloud Mail needs an app-specific password: account.apple.com > Sign-In and Security > App-Specific Passwords. The user name is your full iCloud address."
 )
 
+# assign_ports: keep each port from the last run, else take the first free
+# one. No two homewan services ever share a port.
+assign_ports() {
+    local spec key start p taken=" "
+    for spec in INFLUX_PORT:8086 NTOPNG_PORT:3001 GRAFANA_PORT:3000 REDIS_PORT:6380; do
+        key="${spec%%:*}"; start="${spec#*:}"
+        p="$(prev "$key")"
+        if [[ -z "$p" || "$taken" == *" $p "* ]]; then
+            p="$start"
+            while ! port_free "$p" || [[ "$taken" == *" $p "* ]]; do p=$((p + 1)); done
+        fi
+        ANS[$key]="$p"; taken+="$p "
+    done
+}
+
 phase_features() {
+    assign_ports
     local features="report"
     goal health && features+=",health"
     goal speed && features+=",speedtest"
@@ -468,7 +487,11 @@ The weekly email works without it. Grafana uses about 150 MB of memory." "$(list
 
 Each program gets its own bucket and a write-only key, created with: sudo homewan bucket add NAME" "$(list_has "$(prev FEATURES)" shared && printf yes || printf no)"; then
         features+=",shared"
-        ui_input INFLUX_ORG "Share the metrics store" "Organisation name inside the database. Keep the default unless another program on this Pi already expects a particular name." "$(prev INFLUX_ORG homewan)" v_org
+        local portnote="Programs on this Pi reach the database at http://localhost:${ANS[INFLUX_PORT]}."
+        [[ "${ANS[INFLUX_PORT]}" != 8086 ]] && portnote+=" Port 8086, the usual InfluxDB port, is taken on this Pi, so programs that expect 8086 need changing."
+        ui_input INFLUX_ORG "Share the metrics store" "$portnote
+
+Organisation name inside the database. Programs that write to it must use the same name, so if a program on this Pi already expects one (for example homelab), enter that." "$(prev INFLUX_ORG homewan)" v_org
         ANS[INFLUX_ORG]="$UI_REPLY"
         ui_menu INFLUX_BIND "Share the metrics store" "Which programs can reach the database?" "$(prev INFLUX_BIND 127.0.0.1)" \
             127.0.0.1 "Programs on this Pi only (recommended)" \
@@ -619,11 +642,6 @@ The weekly report needs 7 days; data cap tracking needs one full period (up to 3
 
     phase_drives
 
-    # Ports: keep last run's choice, else the first free one.
-    ANS[INFLUX_PORT]="$(prev INFLUX_PORT "$(next_free_port 8086)")"
-    ANS[NTOPNG_PORT]="$(prev NTOPNG_PORT "$(next_free_port 3001)")"
-    ANS[GRAFANA_PORT]="$(prev GRAFANA_PORT "$(next_free_port 3000)")"
-    ANS[REDIS_PORT]="$(prev REDIS_PORT "$(next_free_port 6380)")"
 }
 
 # ---------- drives: discovery, monitoring, missing-drive warnings, SMART ----------
@@ -815,10 +833,15 @@ Storage
 
 phase_summary() {
     ui_msg - "Summary" "$(summary_text)"
+    local q="Save these settings and set up homewan?" save_label="Save and continue"
+    if ((${HOMEWAN_PREVIEW:-0})); then
+        q="This is a preview. Saving writes the settings to $HOMEWAN_ETC/site.conf and sets up nothing."
+        save_label="Save the preview settings"
+    fi
     ui_menu CONFIRM "Confirm" "Nothing on this Pi has changed yet.
 
-Save these settings and set up homewan?" save \
-        save   "Save and continue" \
+$q" save \
+        save   "$save_label" \
         change "Go through the questions again, starting from these answers" \
         quit   "Save my answers and quit"
     case "$UI_REPLY" in

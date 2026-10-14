@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+### Fixes from the first real install (homewan-006)
+
+- The installer showed no final screen and no error messages after the setup step started: the deploy log line redirected the whole script's error output to /dev/null.
+- `homewan doctor` reported missing data that was arriving: the InfluxDB CLI ignores options after the first plain argument, so a trailing `--token` was never read. The token now goes in the environment. `homewan bucket import` had the same fault.
+- The installer and `homewan doctor` now warn when the Pi's own connection is slower than the plan (the speedtest cannot measure past it) or the capture port is slower than both directions of the plan together (traffic gets dropped).
+- The test stand-in for InfluxDB now rejects a token passed the wrong way, as the real CLI does.
+
 ### Deployment (homewan-005)
 
 - After the summary, the installer installs Docker if needed, prepares folders, configures the capture port (left unmanaged by NetworkManager, no addresses), renders all files from `site.conf`, builds the ntopng and tools images, sets up InfluxDB (buckets, retention, one scoped token per writer and reader, ntopng's 1.x login), writes ntopng's settings, starts the containers and installs the timers. It then checks that data arrives and offers a first speedtest.

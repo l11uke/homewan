@@ -1,10 +1,12 @@
 """List the Pi's physical network interfaces as tab-separated lines.
 
 Columns: name, state, mac, ipv4 addresses (comma-separated CIDR or -),
-default route metric (or -), kind (wired|wireless), lan subnet (or -).
+default route metric (or -), kind (wired|wireless), lan subnet (or -),
+link speed in Mbps (or - when unknown, as for Wi-Fi).
 
 Reads `ip -j addr` and `ip -j route` and /sys/class/net, or the files
-addr.json, route.json and sysnet.txt from a fixture directory.
+addr.json, route.json, sysnet.txt and speed.txt ("name mbps" lines) from a
+fixture directory.
 """
 import ipaddress
 import json
@@ -25,7 +27,15 @@ def load(fixtures):
                 parts = line.split()
                 if len(parts) == 3:
                     sysnet[parts[0]] = (parts[1] == "physical", parts[2] == "wireless")
-        return addrs, routes, sysnet
+        speeds = {}
+        path = os.path.join(fixtures, "speed.txt")
+        if os.path.exists(path):
+            with open(path) as f:
+                for line in f:
+                    parts = line.split()
+                    if len(parts) == 2:
+                        speeds[parts[0]] = parts[1]
+        return addrs, routes, sysnet, speeds
     addrs = json.loads(subprocess.run(["ip", "-j", "addr"], capture_output=True, text=True).stdout or "[]")
     routes = json.loads(subprocess.run(["ip", "-j", "route"], capture_output=True, text=True).stdout or "[]")
     sysnet = {}
@@ -34,12 +44,21 @@ def load(fixtures):
         base = os.path.join("/sys/class/net", name)
         sysnet[name] = (os.path.exists(os.path.join(base, "device")),
                         os.path.exists(os.path.join(base, "wireless")))
-    return addrs, routes, sysnet
+    speeds = {}
+    for name in sysnet:
+        try:
+            with open(os.path.join("/sys/class/net", name, "speed")) as f:
+                v = f.read().strip()
+            if v.isdigit() and int(v) > 0:
+                speeds[name] = v
+        except OSError:
+            pass
+    return addrs, routes, sysnet, speeds
 
 
 def main():
     fixtures = sys.argv[1] if len(sys.argv) > 1 and sys.argv[1] else None
-    addrs, routes, sysnet = load(fixtures)
+    addrs, routes, sysnet, speeds = load(fixtures)
     metrics = {}
     for r in routes:
         if r.get("dst") == "default" and r.get("dev"):
@@ -62,6 +81,7 @@ def main():
             str(metrics[name]) if name in metrics else "-",
             "wireless" if wireless else "wired",
             subnet,
+            speeds.get(name, "-"),
         ]))
 
 

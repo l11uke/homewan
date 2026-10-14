@@ -131,7 +131,9 @@ install_units() {
 
 # ---------- InfluxDB ----------
 
-hw_influx() { hw_compose exec -T influxdb influx "$@" --token "${SECRETS[INFLUX_OPERATOR_TOKEN]}"; }
+# The influx CLI stops reading options at the first plain argument (a query
+# or a folder), so the token goes in the environment instead of a trailing --token.
+hw_influx() { hw_compose exec -T -e "INFLUX_TOKEN=${SECRETS[INFLUX_OPERATOR_TOKEN]}" influxdb influx "$@"; }
 
 influx_wait() {
     local i
@@ -243,7 +245,9 @@ setup_ntopng() {
 deploy() {
     local build="${1:-}"
     mkdir -p "$HOMEWAN_LOG_DIR"
-    exec 3>>"$HOMEWAN_LOG_DIR/deploy.log" 2>/dev/null || exec 3>/dev/null
+    # Only file descriptor 3 goes to the log. (exec applies every redirection
+    # on its line to the whole script, so nothing else may be redirected here.)
+    if [[ -w "$HOMEWAN_LOG_DIR" ]]; then exec 3>>"$HOMEWAN_LOG_DIR/deploy.log"; else exec 3>/dev/null; fi
     step() { ui_info "$1"; printf '\n== %s %s\n' "$(date '+%F %T')" "$1" >&3; }
 
     step "Checking Docker..."; ensure_docker

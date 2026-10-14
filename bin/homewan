@@ -102,7 +102,7 @@ cmd_bucket() {
             local cid; cid="$(hw_compose ps -q influxdb)"
             docker exec "$cid" rm -rf /tmp/homewan-import
             docker cp "$dir" "$cid:/tmp/homewan-import" >/dev/null || die "could not copy $dir"
-            hw_influx restore /tmp/homewan-import --bucket "$name" --org "${CONF[INFLUX_ORG]}" || die "restore failed"
+            hw_influx restore --bucket "$name" --org "${CONF[INFLUX_ORG]}" /tmp/homewan-import || die "restore failed"
             docker exec "$cid" rm -rf /tmp/homewan-import
             printf 'Imported %s. Create its write token with: sudo homewan bucket add %s\n' "$name" "$name" ;;
         *) die "usage: homewan bucket list | add NAME [--retention DAYS] | import NAME DIR" ;;
@@ -122,6 +122,11 @@ cmd_doctor() {
     printf 'Checking...\n'
     verify_all 0
     verify_text
+    local ms; ms="$(cat "/sys/class/net/${CONF[MGMT_IFACE]}/speed" 2>/dev/null)"
+    if [[ "$ms" =~ ^[0-9]+$ ]] && (( ms > 0 && ms < ${CONF[PLAN_DOWN_MBPS]:-0} )); then
+        printf '  --    the Pi'"'"'s own connection (%s) runs at %s Mbps, below your %s Mbps plan; speedtests top out near %s Mbps\n' \
+            "${CONF[MGMT_IFACE]}" "$ms" "${CONF[PLAN_DOWN_MBPS]}" "$(( ms * 94 / 100 ))"
+    fi
     if [[ -n "${CONF[DISK_EXPECTED]:-}" ]]; then
         local e m u actual
         IFS=',' read -ra _e <<<"${CONF[DISK_EXPECTED]}"

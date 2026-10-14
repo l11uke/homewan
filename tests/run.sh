@@ -170,6 +170,15 @@ echo "Cap goal ticked but no data limit: the goal is dropped"
 run_case cap_no default "${BASE[@]}" GOALS=speed,usage,cap,health HAS_MIRROR=yes LAYOUT=wan_mirror CAP_ENABLED=no
 expect GOALS speed,usage,health; expect CAP_ENABLED no
 
+echo "Slow USB adapter: warn about the speedtest ceiling and the capture port"
+run_case slow_link default "${BASE[@]}" GOALS=speed,usage,health HAS_MIRROR=yes LAYOUT=wan_mirror CAP_ENABLED=no PLAN_DOWN_MBPS=740 PLAN_UP_MBPS=42
+printf 'eth0 100\neth1 100\n' > "$FX/speed.txt"; rm -rf "$ETC"; mkdir -p "$ETC"
+rerun_case "${BASE[@]}" GOALS=speed,usage,health HAS_MIRROR=yes LAYOUT=wan_mirror CAP_ENABLED=no PLAN_DOWN_MBPS=740 PLAN_UP_MBPS=42 LINK_SLOW_ACTION=quit
+expect_rc 10
+grep -q "after changing the adapter" "$WORK/$CASE/out2" && ok || fail "slow link not reported"
+rerun_case "${BASE[@]}" RESUME_DRAFT=yes LINK_SLOW_ACTION=continue
+expect_rc 0
+
 echo "Bad answers are rejected"
 run_case bad_email default "${BASE[@]}" GOALS=speed,health REPORT_TO=not-an-address
 [[ "$RC" != 0 ]] && grep -q "REPORT_TO rejected" "$WORK/$CASE/out" && ok || fail "bad email accepted"

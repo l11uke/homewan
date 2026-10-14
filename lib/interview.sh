@@ -296,8 +296,35 @@ Continue with ${ANS[CAPTURE_IFACE]}?" no || { phase_network; return; }
     ANS[PLAN_DOWN_MBPS]="$UI_REPLY"
     ui_input PLAN_UP_MBPS "Your internet plan" "Upload speed of your plan, in Mbps (for example 20):" "$(prev PLAN_UP_MBPS 20)" v_speed
     ANS[PLAN_UP_MBPS]="$UI_REPLY"
+    check_link_speeds
 
     phase_cap
+}
+
+# Warn when a port is slower than the internet plan: the speedtest can never
+# measure more than the Pi's own link, and a slow capture port drops traffic.
+check_link_speeds() {
+    local mgmt="${ANS[MGMT_IFACE]}" cap="${ANS[CAPTURE_IFACE]:-}" ms cs msg=""
+    local down="${ANS[PLAN_DOWN_MBPS]}" both=$(( ANS[PLAN_DOWN_MBPS] + ANS[PLAN_UP_MBPS] ))
+    ms="$(net_field "$mgmt" 8)"; cs=""; [[ -n "$cap" ]] && cs="$(net_field "$cap" 8)"
+    if [[ "$ms" =~ ^[0-9]+$ ]] && (( ms < down )) && goal speed; then
+        msg+="The Pi's own connection ($mgmt) runs at $ms Mbps, slower than your $down Mbps plan. The speedtest runs through it, so it can never show more than about $(( ms * 94 / 100 )) Mbps.
+
+"
+    fi
+    if [[ "$cs" =~ ^[0-9]+$ ]] && (( cs < both )); then
+        msg+="The capture port ($cap) runs at $cs Mbps. The mirror copies both directions of your $down/${ANS[PLAN_UP_MBPS]} Mbps connection to it, so at busy times it drops traffic and usage figures come out low.
+
+"
+    fi
+    [[ -n "$msg" ]] || return 0
+    if [[ "$(net_field "$mgmt" 6)" == wired ]]; then
+        msg+="Common cause: a USB 2.0 Ethernet adapter, which tops out at 100 Mbps. A gigabit USB 3.0 adapter (for example one with a Realtek RTL8153 chip) in a blue USB 3 port fixes it. Also check the cable and the switch port: a damaged cable often links at 100 Mbps."
+    fi
+    ui_menu LINK_SLOW_ACTION "Network link speed" "$msg" continue \
+        continue "Continue; I understand the limits" \
+        quit     "Save my answers and quit, to fix the hardware first"
+    if [[ "$UI_REPLY" == quit ]]; then save_draft; log "Answers saved. Run the installer again after changing the adapter or cable."; exit 10; fi
 }
 
 phase_mirror_test() {

@@ -1,0 +1,4 @@
+#!/bin/sh
+echo "systemctl $*" >> "$STUB_LOG"
+case "$1" in is-active) [ "$2" = "--quiet" ] && [ "$3" = "NetworkManager" ] && exit 0; exit 0 ;; show) echo "Mon 2026-10-19 00:07:00 AEST" ;; esac
+exit 0

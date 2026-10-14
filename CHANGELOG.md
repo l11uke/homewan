@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+### Deployment (homewan-005)
+
+- After the summary, the installer installs Docker if needed, prepares folders, configures the capture port (left unmanaged by NetworkManager, no addresses), renders all files from `site.conf`, builds the ntopng and tools images, sets up InfluxDB (buckets, retention, one scoped token per writer and reader, ntopng's 1.x login), writes ntopng's settings, starts the containers and installs the timers. It then checks that data arrives and offers a first speedtest.
+- New `homewan` command: status, doctor, reconfigure, apply, speedtest, run, secrets, logs, bucket list/add/import, up, down, uninstall.
+- Jobs: speedtest (Ookla CLI, including data used per test) and drive health (smartctl), run by systemd timers.
+- `install.sh --alongside` installs next to an older stack that is still running; a later reconfigure moves homewan to its usual ports.
+- Tests: rendering and Compose validation, a full deploy against stand-ins for Docker and InfluxDB (run twice, to prove repeat runs change nothing), Python unit tests. `tests/run.sh --quiet` prints only failures and exits non-zero on any.
+- Not yet: the weekly report and the daily check.
+
 ### Fixes from the first preview on a Pi (homewan-004)
 
 - Ports: when the usual ports are taken, each service now gets its own free port. Before, ntopng and Grafana could both be given the same one.

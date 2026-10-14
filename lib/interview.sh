@@ -418,14 +418,19 @@ SMTP_PRESETS=(
     "icloud|smtp.mail.me.com|587|starttls|iCloud Mail needs an app-specific password: account.apple.com > Sign-In and Security > App-Specific Passwords. The user name is your full iCloud address."
 )
 
-# assign_ports: keep each port from the last run, else take the first free
-# one. No two homewan services ever share a port.
+# assign_ports: each service gets its usual port when that port is free (or
+# already homewan's own), else last run's port, else the next free one. No two
+# homewan services share a port, and after an older stack is removed, a
+# reconfigure moves homewan back to the usual ports.
 assign_ports() {
-    local spec key start p taken=" "
+    local spec key start p prevp taken=" " installed=0
+    [[ -f "$SITE_CONF" ]] && ! ((${HOMEWAN_PREVIEW:-0})) && installed=1
     for spec in INFLUX_PORT:8086 NTOPNG_PORT:3001 GRAFANA_PORT:3000 REDIS_PORT:6380; do
-        key="${spec%%:*}"; start="${spec#*:}"
-        p="$(prev "$key")"
-        if [[ -z "$p" || "$taken" == *" $p "* ]]; then
+        key="${spec%%:*}"; start="${spec#*:}"; prevp="$(prev "$key")"
+        usable() { [[ "$taken" != *" $1 "* ]] && { port_free "$1" || { ((installed)) && [[ "$1" == "$prevp" ]]; }; }; }
+        if usable "$start"; then p="$start"
+        elif [[ -n "$prevp" ]] && usable "$prevp"; then p="$prevp"
+        else
             p="$start"
             while ! port_free "$p" || [[ "$taken" == *" $p "* ]]; do p=$((p + 1)); done
         fi

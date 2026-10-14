@@ -1,0 +1,3 @@
+#!/bin/sh
+echo "curl $*" >> "$STUB_LOG"
+exit 0

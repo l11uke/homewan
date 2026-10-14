@@ -1,0 +1,17 @@
+# Grafana data source for homewan's InfluxDB. The token comes from the
+# container environment, so this file holds no secret.
+apiVersion: 1
+datasources:
+  - name: homewan
+    uid: homewan-influxdb
+    type: influxdb
+    access: proxy
+    url: http://influxdb:8086
+    isDefault: true
+    jsonData:
+      version: Flux
+      organization: {{INFLUX_ORG}}
+      defaultBucket: network
+      timeout: 60
+    secureJsonData:
+      token: $HOMEWAN_INFLUX_TOKEN

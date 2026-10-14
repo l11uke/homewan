@@ -1,0 +1,9 @@
+[Unit]
+Description=homewan drive health check every hour
+
+[Timer]
+OnCalendar=*-*-* *:23:00
+Unit=homewan-run@smart.service
+
+[Install]
+WantedBy=timers.target

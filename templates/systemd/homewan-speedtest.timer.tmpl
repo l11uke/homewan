@@ -1,0 +1,10 @@
+[Unit]
+Description=homewan speedtest every {{SPEEDTEST_INTERVAL_HOURS}} hours
+
+[Timer]
+OnCalendar={{SPEEDTEST_CALENDAR}}
+RandomizedDelaySec=300
+Unit=homewan-run@speedtest.service
+
+[Install]
+WantedBy=timers.target

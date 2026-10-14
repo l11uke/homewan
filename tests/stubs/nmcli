@@ -1,0 +1,2 @@
+#!/bin/sh
+echo "nmcli $*" >> "$STUB_LOG"

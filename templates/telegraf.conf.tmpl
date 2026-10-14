@@ -1,0 +1,34 @@
+# homewan Telegraf configuration: the Pi's own health, written to the "system" bucket.
+# Rendered by the installer; change settings with "sudo homewan reconfigure".
+
+[agent]
+  interval = "60s"
+  flush_interval = "60s"
+  hostname = "homewan"
+  omit_hostname = false
+
+[[outputs.influxdb_v2]]
+  urls = ["http://influxdb:8086"]
+  token = "${INFLUX_TOKEN}"
+  organization = "{{INFLUX_ORG}}"
+  bucket = "system"
+
+[[inputs.cpu]]
+  percpu = false
+  totalcpu = true
+
+[[inputs.mem]]
+
+[[inputs.system]]
+
+[[inputs.temp]]
+
+[[inputs.disk]]
+#%if DISK_ALL
+  # Every real filesystem, so drives mounted later appear automatically.
+  ignore_fs = ["tmpfs", "devtmpfs", "devfs", "overlay", "aufs", "squashfs", "iso9660", "proc", "sysfs", "cgroup", "cgroup2", "autofs", "nsfs", "tracefs", "debugfs", "efivarfs", "ramfs", "fuse.portal"]
+  ignore_mount_opts = ["bind"]
+#%endif
+#%if !DISK_ALL
+  mount_points = [{{TELEGRAF_MOUNTS}}]
+#%endif

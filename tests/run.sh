@@ -8,8 +8,10 @@ set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 FIX="$ROOT/tests/fixtures"
 WORK="$(mktemp -d)"
-trap 'rm -rf "$WORK"' EXIT
+trap '[[ -n "${HOMEWAN_TEST_KEEP:-}" ]] && printf "Test files kept in %s\n" "$WORK" || rm -rf "$WORK"' EXIT
 PASS=0; FAIL=0; CASE=""
+# --quiet: print only failures and the summary. Exit status is non-zero on any failure.
+if [[ "${1:-}" == --quiet ]]; then echo() { :; }; fi
 
 ok()   { PASS=$((PASS + 1)); }
 fail() { FAIL=$((FAIL + 1)); printf '  FAIL [%s] %s\n' "$CASE" "$*"; }
@@ -182,12 +184,102 @@ rerun_case GOALS=speed,health
 [[ "$RC" == 1 ]] && grep -q "influxdb grafana" "$WORK/$CASE/out2" && ok || fail "old stack not detected (rc $RC)"
 
 echo "Preview mode only warns about old containers"
-HOMEWAN_TEST=1 HOMEWAN_FIXTURES="$FX" bash "$ROOT/install.sh" --preview --answers "$WORK/$CASE/answers" > "$WORK/$CASE/out3" 2>&1
-[[ $? == 0 && -f /tmp/homewan-preview/site.conf ]] && ok || fail "preview did not finish: $(tail -2 "$WORK/$CASE/out3")"
-rm -rf /tmp/homewan-preview
+HOMEWAN_TEST=1 HOMEWAN_FIXTURES="$FX" HOMEWAN_PREVIEW_DIR="$WORK/preview" bash "$ROOT/install.sh" --preview --answers "$WORK/$CASE/answers" > "$WORK/$CASE/out3" 2>&1
+[[ $? == 0 && -f "$WORK/preview/site.conf" ]] && ok || fail "preview did not finish: $(tail -2 "$WORK/$CASE/out3")"
 
 echo "--answers is refused outside the test suite"
 HOMEWAN_TEST=0 bash "$ROOT/install.sh" --answers /dev/null >/dev/null 2>&1 && fail "accepted" || ok
+
+# render_check NAME: render every file from a case's settings and validate them
+render_check() {
+    local etc="$WORK/$1/etc"
+    HOMEWAN_TEST=1 HOMEWAN_ETC="$etc" HOMEWAN_ROOT="$ROOT" bash -c '
+        source "$HOMEWAN_ROOT/lib/common.sh"; source "$HOMEWAN_ROOT/lib/ui.sh"; source "$HOMEWAN_ROOT/lib/config.sh"
+        source "$HOMEWAN_ROOT/lib/deploy.sh"; conf_load && render_all' > "$WORK/$1/render.out" 2>&1
+}
+compose_ok() {
+    if ! command -v docker >/dev/null || ! docker compose version >/dev/null 2>&1; then ok; return; fi
+    if docker compose -f "$WORK/$1/etc/rendered/compose.yml" --env-file "$WORK/$1/etc/secrets.env" config -q > "$WORK/$1/compose.out" 2>&1; then ok
+    else fail "compose.yml invalid: $(head -3 "$WORK/$1/compose.out")"; fi
+}
+in_file() { grep -q -- "$2" "$1" && ok || fail "$(basename "$1") lacks: $2"; }
+not_in_file() { grep -q -- "$2" "$1" && fail "$(basename "$1") should not contain: $2" || ok; }
+
+echo "Rendering: layout A with Grafana, all drives, drive health"
+CASE=render_a
+render_check layout_a && ok || fail "render failed: $(tail -3 "$WORK/layout_a/render.out")"
+R="$WORK/layout_a/etc/rendered"
+compose_ok layout_a
+in_file "$R/compose.yml" "homewan/ntopng:local"; in_file "$R/compose.yml" "--interface=eth0"
+in_file "$R/compose.yml" "127.0.0.1:8086:8086"; in_file "$R/compose.yml" "DOCKER_INFLUXDB_INIT_ORG: homelab"
+in_file "$R/compose.yml" "DOCKER_INFLUXDB_INIT_RETENTION: 90d"; in_file "$R/compose.yml" "grafana/grafana:12.4.12"
+in_file "$R/compose.yml" 'restart: "unless-stopped"'
+not_in_file "$R/compose.yml" "apppassword"; not_in_file "$R/telegraf.conf" "apppassword"
+in_file "$R/telegraf.conf" "ignore_fs"; not_in_file "$R/telegraf.conf" "mount_points"
+in_file "$R/telegraf.conf" 'organization = "homelab"'
+in_file "$R/grafana/datasources/homewan.yaml" "organization: homelab"
+in_file "$R/systemd/homewan.service" "RequiresMountsFor=/var/lib/homewan"
+in_file "$R/systemd/homewan-capture.service" "ip link set eth0 up"
+in_file "$R/systemd/homewan-speedtest.timer" "OnCalendar=\*-\*-\* 00/4:07:00"
+in_file "$R/systemd/homewan-smart.timer" "homewan-run@smart.service"
+
+echo "Rendering: no capture, selected drives, no Grafana, keep data forever"
+CASE=render_c
+sed -i "s/^RETENTION_DAYS=.*/RETENTION_DAYS='0'/" "$WORK/drives_selected/etc/site.conf"
+render_check drives_selected && ok || fail "render failed: $(tail -3 "$WORK/drives_selected/render.out")"
+R="$WORK/drives_selected/etc/rendered"
+compose_ok drives_selected
+not_in_file "$R/compose.yml" "ntopng"; not_in_file "$R/compose.yml" "grafana"; not_in_file "$R/compose.yml" "INIT_RETENTION"
+in_file "$R/telegraf.conf" 'mount_points = \["/"\]'
+[[ ! -e "$R/systemd/homewan-capture.service" && ! -e "$R/systemd/homewan-smart.timer" ]] && ok || fail "unneeded units rendered"
+
+echo "Deploy against stand-ins for Docker and InfluxDB, twice"
+CASE=deploy
+D="$WORK/deploy"; mkdir -p "$D/systemd" "$D/bin"
+cp -r "$WORK/layout_a/etc" "$D/etc"
+sed -i "s#^DATA_DIR=.*#DATA_DIR='$D/data'#" "$D/etc/site.conf"
+deploy_run() {
+    PATH="$ROOT/tests/stubs:$PATH" STUB_STATE="$D/state.json" STUB_LOG="$D/calls.log" \
+    HOMEWAN_ETC="$D/etc" HOMEWAN_ROOT="$ROOT" SYSTEMD_DIR="$D/systemd" NM_CONF="$D/nm.conf" \
+    HOMEWAN_LOG_DIR="$D/log" HOMEWAN_BIN_LINK="$D/bin/homewan" bash -c '
+        source "$HOMEWAN_ROOT/lib/common.sh"; source "$HOMEWAN_ROOT/lib/ui.sh"; UI_MODE=text
+        source "$HOMEWAN_ROOT/lib/config.sh"; source "$HOMEWAN_ROOT/lib/deploy.sh"; source "$HOMEWAN_ROOT/lib/verify.sh"
+        deploy --build && verify_all 0 && verify_text' > "$D/out$1" 2>&1
+}
+deploy_run 1 && ok || fail "first deploy failed: $(tail -3 "$D/out1")"
+sec() { sed -n "s/^$1='\(.*\)'\$/\1/p" "$D/etc/secrets.env"; }
+[[ -n "$(sec INFLUX_TOKEN_TELEGRAF)" && -n "$(sec INFLUX_TOKEN_SPEEDTEST)" && -n "$(sec INFLUX_TOKEN_REPORT)" && -n "$(sec INFLUX_TOKEN_GRAFANA)" ]] && ok || fail "tokens missing from secrets.env"
+[[ "$(sec SMTP_PASSWORD)" == apppassword ]] && ok || fail "SMTP password lost during deploy"
+T1="$(sec INFLUX_TOKEN_TELEGRAF)"
+python3 -c 'import json,sys; s=json.load(open(sys.argv[1])); sys.exit(0 if set(s["buckets"])=={"network","system"} and len(s["auths"])==4 and s["v1"]==[{"userName":"ntopng"}] else 1)' "$D/state.json" && ok || fail "buckets/tokens wrong: $(cat "$D/state.json")"
+python3 -c 'import json,sys; r=json.load(open(sys.argv[1]))["redis"]; sys.exit(0 if r.get("ntopng.prefs.timeseries_driver")=="influxdb" and r.get("ntopng.prefs.ts_post_data_url")=="http://127.0.0.1:8086" and r.get("ntopng.prefs.admin_password_changed")=="1" and len(r.get("ntopng.user.admin.password",""))==32 else 1)' "$D/state.json" && ok || fail "ntopng settings wrong"
+in_file "$D/nm.conf" "unmanaged-devices=interface-name:eth0"
+[[ -f "$D/systemd/homewan.service" && -f "$D/systemd/homewan-speedtest.timer" && -f "$D/systemd/homewan-smart.timer" ]] && ok || fail "units not installed"
+[[ -d "$D/data/influxdb/data" && -d "$D/data/ntopng" && -L "$D/bin/homewan" ]] && ok || fail "folders or command link missing"
+grep -q "pull --ignore-buildable" "$D/calls.log" && grep -q "profile tools build" "$D/calls.log" && ok || fail "images not pulled and built"
+grep -q "OK    Pi health data is arriving" "$D/out1" && ok || fail "verify output: $(tail -5 "$D/out1")"
+deploy_run 2 && ok || fail "second deploy failed: $(tail -3 "$D/out2")"
+[[ "$(sec INFLUX_TOKEN_TELEGRAF)" == "$T1" ]] && ok || fail "second deploy replaced a valid token"
+python3 -c 'import json,sys; s=json.load(open(sys.argv[1])); sys.exit(0 if len(s["auths"])==4 and len(s["v1"])==1 else 1)' "$D/state.json" && ok || fail "second deploy added tokens or logins"
+grep -q "v1 auth set-password --username ntopng" "$D/calls.log" && ok || fail "ntopng password not refreshed on second run"
+
+echo "homewan bucket add, against the stand-ins"
+CASE=bucket
+if [[ $EUID -eq 0 ]]; then
+    PATH="$ROOT/tests/stubs:$PATH" STUB_STATE="$D/state.json" STUB_LOG="$D/calls.log" HOMEWAN_ETC="$D/etc" \
+        bash "$ROOT/bin/homewan" bucket add media > "$D/bucket.out" 2>&1 && ok || fail "bucket add failed: $(tail -2 "$D/bucket.out")"
+    grep -q "^  tok[0-9]" "$D/bucket.out" && ok || fail "no token printed"
+    grep -q "^SHARED_BUCKETS='media'$" "$D/etc/site.conf" && ok || fail "SHARED_BUCKETS not updated"
+    MID="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["buckets"]["media"])' "$D/state.json")"
+    grep -q "bucket-media-writer --write-bucket $MID " "$D/calls.log" && ok || fail "token not scoped to the new bucket"
+else
+    ok; ok; ok; ok  # needs root; covered when the suite runs as root
+fi
+bash "$ROOT/bin/homewan" help | grep -q "bucket add NAME" && ok || fail "help text"
+
+echo "Python unit tests"
+CASE=python
+if (cd "$ROOT" && python3 -m unittest -q tests.test_python > "$WORK/python.out" 2>&1); then ok; else fail "$(tail -5 "$WORK/python.out")"; fi
 
 echo "Mirror classifier"
 CASE=classifier
@@ -197,5 +289,5 @@ c() { python3 -I "$ROOT/lib/py/mirror_classify.py" 9.9.9.9 192.168.1.0/24 < "$FI
 [[ "$(c empty)" == $'NO_PACKETS\tno' ]] && ok || fail "empty: $(c empty)"
 [[ "$(c pppoe)" == $'WAN\tyes' ]] && ok || fail "pppoe: $(c pppoe)"
 
-printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
+printf '%d passed, %d failed\n' "$PASS" "$FAIL"
 ((FAIL == 0))

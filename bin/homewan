@@ -1,0 +1,187 @@
+#!/usr/bin/env bash
+# homewan command. Run "homewan help" for the list of commands.
+set -uo pipefail
+
+HOMEWAN_ROOT="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
+# shellcheck source=../lib/common.sh
+source "$HOMEWAN_ROOT/lib/common.sh"
+# shellcheck source=../lib/ui.sh
+source "$HOMEWAN_ROOT/lib/ui.sh"
+# shellcheck source=../lib/config.sh
+source "$HOMEWAN_ROOT/lib/config.sh"
+# shellcheck source=../lib/deploy.sh
+source "$HOMEWAN_ROOT/lib/deploy.sh"
+# shellcheck source=../lib/verify.sh
+source "$HOMEWAN_ROOT/lib/verify.sh"
+# shellcheck disable=SC2034  # read by lib/ui.sh
+UI_MODE=text
+
+need_root() { [[ $EUID -eq 0 ]] || die "run this with sudo: sudo homewan $*"; }
+
+usage() {
+    cat <<'TXT'
+Usage: sudo homewan COMMAND
+
+  status                 containers, timers and versions
+  doctor                 check that data is arriving and timers are running
+  reconfigure            answer the installer's questions again, then apply
+  apply [--build]        re-create files from site.conf and restart what changed
+  speedtest              run a speedtest now
+  run JOB [--dry-run]    run a job now: speedtest, smart
+  secrets                show the web logins
+  logs SERVICE           last 100 log lines of influxdb, telegraf, ntopng, redis or grafana
+  bucket list            list the database's buckets
+  bucket add NAME [--retention DAYS]
+                         create a bucket for another program, and a write-only token for it
+  bucket import NAME DIR load a bucket from an InfluxDB 2 backup folder ("influx backup")
+  up | down              start or stop the containers
+  uninstall [--purge]    remove homewan; --purge also deletes settings and data
+TXT
+}
+
+# run_tools JOB [ARGS]: run a job in the tools container with the settings
+# and the one token that job needs.
+run_tools() {
+    local job="$1"; shift
+    local args=(--rm --network homewan_default) k
+    for k in "${!CONF[@]}"; do args+=(-e "$k=${CONF[$k]}"); done
+    args+=(-e INFLUX_URL=http://influxdb:8086)
+    case "$job" in
+        speedtest) args+=(-e "INFLUX_TOKEN_SPEEDTEST=${SECRETS[INFLUX_TOKEN_SPEEDTEST]:-}") ;;
+        smart)
+            args+=(-e "INFLUX_TOKEN_SYSTEM=${SECRETS[INFLUX_TOKEN_TELEGRAF]:-}" --cap-add SYS_RAWIO --cap-add SYS_ADMIN)
+            local d name real map=()
+            IFS=',' read -ra _d <<<"${CONF[SMART_DEVICES]:-}"
+            for d in "${_d[@]}"; do
+                name="${d%:*}"
+                real="$(readlink -f "/dev/disk/by-id/$name" 2>/dev/null)"
+                [[ -b "$real" ]] || real="/dev/$name"
+                if [[ -b "$real" ]]; then args+=(--device "$real:$real"); map+=("$name=$real"); fi
+            done
+            args+=(-e "SMART_DEVICE_PATHS=$(join , "${map[@]}")") ;;
+        *) die "unknown job: $job (speedtest, smart)" ;;
+    esac
+    docker run "${args[@]}" homewan/tools:local "$job" "$@"
+}
+
+cmd_secrets() {
+    printf 'Web logins (user name admin for all):\n\n'
+    local ip; ip="$(ip -4 -o addr show "${CONF[MGMT_IFACE]}" 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | head -1)"
+    ip="${ip:-this-pi}"
+    if feature capture; then printf '  ntopng    http://%s:%s    %s\n' "$ip" "${CONF[NTOPNG_PORT]}" "${SECRETS[NTOPNG_ADMIN_PASSWORD]}"; fi
+    if feature grafana; then printf '  Grafana   http://%s:%s    %s\n' "$ip" "${CONF[GRAFANA_PORT]}" "${SECRETS[GRAFANA_ADMIN_PASSWORD]}"; fi
+    local host="$ip"; [[ "${CONF[INFLUX_BIND]}" == 127.0.0.1 ]] && host="localhost (this Pi only)"
+    printf '  InfluxDB  http://%s:%s    %s\n' "$host" "${CONF[INFLUX_PORT]}" "${SECRETS[INFLUX_ADMIN_PASSWORD]}"
+}
+
+set_shared_buckets() {
+    local list="$1"
+    sed -i "s/^SHARED_BUCKETS=.*/SHARED_BUCKETS='$list'/" "$SITE_CONF"
+}
+
+cmd_bucket() {
+    local sub="${1:-}"; shift || true
+    case "$sub" in
+        list) hw_influx bucket list --org "${CONF[INFLUX_ORG]}" ;;
+        add)
+            local name="${1:?bucket name}" days=0
+            [[ "${2:-}" == --retention ]] && days="${3:?days}"
+            [[ "$name" =~ ^[A-Za-z0-9_-]+$ ]] || die "bucket names use letters, digits, - and _"
+            [[ "$name" == network || "$name" == system ]] && die "$name belongs to homewan"
+            ensure_bucket "$name" "$days" || die "could not create bucket $name"
+            local id t; id="$(bucket_id "$name")"
+            t="$(hw_influx auth create --org "${CONF[INFLUX_ORG]}" --description "bucket-$name-writer" --write-bucket "$id" --json \
+                | python3 -c 'import json,sys; print(json.load(sys.stdin)["token"])')" || die "could not create a token"
+            list_has "${CONF[SHARED_BUCKETS]:-}" "$name" || set_shared_buckets "$(join , ${CONF[SHARED_BUCKETS]:+"${CONF[SHARED_BUCKETS]}"} "$name")"
+            printf 'Bucket %s is ready. Write-only token, shown once:\n\n  %s\n\n' "$name" "$t"
+            printf 'Programs on this Pi write to http://localhost:%s, organisation %s, bucket %s.\n' "${CONF[INFLUX_PORT]}" "${CONF[INFLUX_ORG]}" "$name" ;;
+        import)
+            local name="${1:?bucket name}" dir="${2:?backup folder}"
+            [[ -d "$dir" ]] || die "$dir is not a folder"
+            [[ -z "$(bucket_id "$name")" ]] || die "bucket $name already exists; import only works into a new bucket"
+            local cid; cid="$(hw_compose ps -q influxdb)"
+            docker exec "$cid" rm -rf /tmp/homewan-import
+            docker cp "$dir" "$cid:/tmp/homewan-import" >/dev/null || die "could not copy $dir"
+            hw_influx restore /tmp/homewan-import --bucket "$name" --org "${CONF[INFLUX_ORG]}" || die "restore failed"
+            docker exec "$cid" rm -rf /tmp/homewan-import
+            printf 'Imported %s. Create its write token with: sudo homewan bucket add %s\n' "$name" "$name" ;;
+        *) die "usage: homewan bucket list | add NAME [--retention DAYS] | import NAME DIR" ;;
+    esac
+}
+
+cmd_status() {
+    hw_compose ps --format 'table {{.Service}}\t{{.State}}\t{{.Status}}'
+    printf '\n'
+    systemctl list-timers --no-pager 'homewan-*' 2>/dev/null | head -n -2
+    if feature capture && docker image inspect homewan/ntopng:local >/dev/null 2>&1; then
+        printf '\nntopng: %s\n' "$(docker run --rm --entrypoint cat homewan/ntopng:local /etc/ntopng-version 2>/dev/null)"
+    fi
+}
+
+cmd_doctor() {
+    printf 'Checking...\n'
+    verify_all 0
+    verify_text
+    if [[ -n "${CONF[DISK_EXPECTED]:-}" ]]; then
+        local e m u actual
+        IFS=',' read -ra _e <<<"${CONF[DISK_EXPECTED]}"
+        for e in "${_e[@]}"; do
+            m="${e%%=*}"; u="${e#*=}"
+            actual="$(findmnt -n -o UUID --mountpoint "$m" 2>/dev/null)"
+            if [[ -z "$actual" ]]; then printf '  FAIL  drive missing: nothing mounted at %s\n' "$m"; VERIFY_FAILED=$((VERIFY_FAILED + 1))
+            elif [[ "${actual^^}" != "${u^^}" ]]; then printf '  FAIL  a different drive is mounted at %s\n' "$m"; VERIFY_FAILED=$((VERIFY_FAILED + 1))
+            else printf '  OK    drive at %s is connected\n' "$m"; fi
+        done
+    fi
+    ((VERIFY_FAILED == 0))
+}
+
+cmd_uninstall() {
+    local purge="${1:-}"
+    printf 'This stops and removes homewan: containers, images and timers.\n'
+    if [[ "$purge" == --purge ]]; then
+        printf 'It also DELETES %s and all data in %s.\n' "$HOMEWAN_ETC" "${CONF[DATA_DIR]}"
+        [[ -n "${CONF[SHARED_BUCKETS]:-}" ]] && printf 'That includes buckets other programs use: %s\n' "${CONF[SHARED_BUCKETS]}"
+    else
+        printf 'Settings in %s and data in %s are kept.\n' "$HOMEWAN_ETC" "${CONF[DATA_DIR]}"
+    fi
+    local r; read -r -p 'Type yes to continue: ' r
+    [[ "$r" == yes ]] || { printf 'Nothing changed.\n'; return 1; }
+    local f
+    for f in "$SYSTEMD_DIR"/homewan*; do
+        [[ -e "$f" ]] || continue
+        systemctl disable --now "$(basename "$f")" >/dev/null 2>&1; rm -f "$f"
+    done
+    systemctl daemon-reload
+    hw_compose --profile tools down --rmi all --remove-orphans
+    rm -f "$NM_CONF"; systemctl reload NetworkManager 2>/dev/null || true
+    rm -f /usr/local/bin/homewan
+    if [[ "$purge" == --purge ]]; then rm -rf "${CONF[DATA_DIR]}" "$HOMEWAN_ETC"; fi
+    printf 'homewan is removed. The code is still in %s; delete it if you no longer need it.\n' "$HOMEWAN_ROOT"
+}
+
+main() {
+    local cmd="${1:-help}"; shift || true
+    case "$cmd" in
+        help|-h|--help) usage; return ;;
+        reconfigure) need_root reconfigure; exec "$HOMEWAN_ROOT/install.sh" "$@" ;;
+    esac
+    need_root "$cmd"
+    conf_load
+    case "$cmd" in
+        status) cmd_status ;;
+        doctor) cmd_doctor ;;
+        apply) deploy "${1:-}"; verify_all 60; verify_text ;;
+        up) hw_compose up -d --remove-orphans ;;
+        down) hw_compose down ;;
+        speedtest) run_tools speedtest "$@" ;;
+        run) run_tools "${1:?job name}" "${@:2}" ;;
+        secrets) cmd_secrets ;;
+        logs) hw_compose logs --tail 100 "${1:?service name}" ;;
+        bucket) cmd_bucket "$@" ;;
+        uninstall) cmd_uninstall "${1:-}" ;;
+        *) usage; return 2 ;;
+    esac
+}
+
+main "$@"

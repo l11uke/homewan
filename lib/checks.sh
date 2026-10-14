@@ -70,9 +70,11 @@ checks_verdict() {
         *) stop+="This Pi runs a 32-bit OS ($ARCH). homewan needs 64-bit Raspberry Pi OS."$'\n' ;;
     esac
     if [[ -n "$OLD_STACK" ]] && ((${HOMEWAN_PREVIEW:-0})); then
-        CHECK_WARNINGS+=("Containers from an earlier monitoring stack are running: $OLD_STACK. A real install stops here until they are removed.")
+        CHECK_WARNINGS+=("Containers from an earlier monitoring stack are running: $OLD_STACK. A real install stops here until they are removed, unless you use --alongside.")
+    elif [[ -n "$OLD_STACK" ]] && ((${HOMEWAN_ALONGSIDE:-0})); then
+        CHECK_WARNINGS+=("Installing alongside the running containers $OLD_STACK. homewan takes free ports. After removing them, run: sudo homewan reconfigure (homewan then moves to the usual ports).")
     elif [[ -n "$OLD_STACK" ]]; then
-        stop+="Containers from an earlier monitoring stack are still here: $OLD_STACK. Remove them first, so homewan can use their ports and network interface."$'\n'
+        stop+="Containers from an earlier monitoring stack are still here: $OLD_STACK. Remove them first, so homewan can use their ports. To try homewan next to them, run the installer with --alongside."$'\n'
     fi
     if [[ "$OS_ID" != debian && "$OS_ID" != raspbian ]] || [[ "$OS_VERSION" != 12 && "$OS_VERSION" != 13 ]]; then
         CHECK_WARNINGS+=("$OS_PRETTY is untested. homewan is built for Raspberry Pi OS based on Debian 12 or 13.")

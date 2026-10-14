@@ -1,0 +1,14 @@
+[Unit]
+Description=homewan capture port {{CAPTURE_IFACE}}: link up, no addresses
+After=network-pre.target
+Before=homewan.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/sbin/ip link set {{CAPTURE_IFACE}} up
+ExecStart=/usr/sbin/sysctl -q -w net.ipv6.conf.{{CAPTURE_IFACE}}.disable_ipv6=1
+ExecStart=/usr/sbin/ip -4 addr flush dev {{CAPTURE_IFACE}}
+
+[Install]
+WantedBy=multi-user.target

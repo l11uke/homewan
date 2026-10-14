@@ -1,6 +1,6 @@
 # homewan specification
 
-Version 0.5 (draft for review), 2026-10-14
+Version 0.6 (draft for review), 2026-10-14
 
 ## 1. Purpose
 
@@ -108,12 +108,22 @@ Everything runs in one Docker Compose project named `homewan`. The host runs Doc
 
 | Service | Image | Profile | Network | Role |
 |---|---|---|---|---|
-| influxdb | `influxdb:2.7.x`, pinned | always | bridge, port 8086 published on `INFLUX_BIND` | Stores all metrics |
-| telegraf | `telegraf:1.x`, pinned | always | bridge | Pi health metrics to the `system` bucket |
-| redis | `redis:7.x-alpine`, pinned | capture | host, 127.0.0.1:`REDIS_PORT` | ntopng's settings and cache |
-| ntopng | `homewan/ntopng`, built locally from ntop's official arm64 packages, pinned version | capture | host | Captures traffic, writes to the `network` bucket |
-| grafana | `grafana/grafana:12.x`, pinned | grafana | bridge, port `GRAFANA_PORT` | Optional dashboards |
-| tools | `homewan/tools`, built locally: Python 3.13 slim, Ookla CLI, report package | run on demand | bridge | `speedtest` and `report` commands |
+| influxdb | `influxdb:2.7.12` | always | bridge, port 8086 published on `INFLUX_BIND` | Stores all metrics |
+| telegraf | `telegraf:1.40.1` | always | bridge | Pi health metrics to the `system` bucket |
+| redis | `redis:8.6.7-alpine` | capture | host, 127.0.0.1:`REDIS_PORT` | ntopng's settings and cache |
+| ntopng | `homewan/ntopng`, built locally on `debian:trixie-slim` from ntop's official Raspberry Pi packages. ntop keeps only recent builds online, so the build takes the newest; `homewan status` shows the version. | capture | host | Captures traffic, writes to the `network` bucket |
+| grafana | `grafana/grafana:12.4.12` | grafana | bridge, port `GRAFANA_PORT` | Optional dashboards |
+| tools | `homewan/tools`, built locally on `python:3.13-slim-trixie`: Ookla CLI from Ookla's signed apt repository, smartmontools, report package | run on demand by `homewan run JOB` | bridge | `speedtest`, `smart` and (later) `report` jobs |
+
+### 5.1.1 Start-up and restarts
+
+`homewan.service` starts the containers at boot after Docker, with `RequiresMountsFor=DATA_DIR`. When `DATA_DIR` is on the root filesystem, containers also carry `restart: unless-stopped`. When it is on another drive, they carry `restart: "no"`, so Docker never starts them before the drive is mounted.
+
+Timers start jobs through `homewan-run@JOB.service`, which runs `homewan run JOB`. The command passes each job the settings from `site.conf` and only the token that job needs, and for `smart` the selected drives (`--device`) with `SYS_RAWIO` and `SYS_ADMIN`.
+
+### 5.1.2 Installing alongside another stack
+
+`install.sh --alongside` installs while another monitoring stack still runs. homewan takes free ports, and both ntopng instances can capture from the same port. After the other stack is removed, `homewan reconfigure` moves homewan back to its usual ports: each port goes back to its default when that port is free.
 
 ### 5.2 Data flow
 
@@ -346,15 +356,19 @@ ntopng reads its InfluxDB settings from Redis (ntopng source, `scripts/lua/modul
 
 ntopng supports InfluxDB 2 only through the 1.x compatibility interface. InfluxDB 2.7 maps each bucket to a 1.x database of the same name automatically.
 
-ntopng options: `--interface=CAPTURE_IFACE`, `--http-port=NTOPNG_PORT`, `--local-networks=LAN_SUBNET`, `--redis=127.0.0.1:REDIS_PORT`, `--community`.
+It also sets `ntopng.prefs.admin_password_changed` to `1`, which skips the forced password change at first login (ntopng source, `scripts/lua/change_password.lua`).
+
+ntopng copies its settings to `runtimeprefs.json` in its data folder and restores them from that file at start-up (`prefs_dump_utils.lua`). The installer deletes the file after writing new values, so a changed password is not undone at the next start.
+
+ntopng options: `--interface=CAPTURE_IFACE`, `--http-port=NTOPNG_PORT`, `--local-networks=LAN_SUBNET`, `--redis=127.0.0.1:REDIS_PORT`, `--data-dir=/var/lib/ntopng`, `--dont-change-user`.
 
 ### 8.2 Speedtest
 
-The `tools` image downloads the Ookla CLI tarball for the platform at build time, with its checksum pinned. Each run writes `download`, `upload`, `ping`, `jitter`, `packet_loss` and `bytes_used` to the `speedtest` measurement. The report shows speedtest traffic on its own line. nDPI labels it `Ookla`.
+The `tools` image installs the Ookla CLI from Ookla's signed apt repository. Each run writes `download`, `upload`, `ping`, `jitter`, `packet_loss` and `bytes_used` to the `speedtest` measurement. The report shows speedtest traffic on its own line. nDPI labels it `Ookla`.
 
 ### 8.3 Telegraf
 
-`hostname = "homewan"` in the agent section, so every point carries the same host tag across container rebuilds. Drives come through a read-only `/hostfs` mount with `rslave` propagation, so drives mounted after Telegraf starts appear without a restart. With `DISK_MODE=all`, `inputs.disk` reports every real filesystem (ignoring tmpfs, overlay, squashfs and similar); with `selected`, only `DISK_MOUNTS`. Telegraf runs as root so it can read mounts under `/media`. With `SMART_DEVICES` set, `inputs.smart` reads those devices through smartctl, which needs the devices passed into the container.
+`hostname = "homewan"` in the agent section, so every point carries the same host tag across container rebuilds. Drives come through a read-only `/hostfs` mount with `rslave` propagation, so drives mounted after Telegraf starts appear without a restart. With `DISK_MODE=all`, `inputs.disk` reports every real filesystem (ignoring tmpfs, overlay, squashfs and similar); with `selected`, only `DISK_MOUNTS`. Telegraf runs as root so it can read mounts under `/media`. Drive health is read by the `smart` job in the tools container (hourly timer), because the Telegraf image has no smartctl. It writes measurement `smart` to the `system` bucket with the Telegraf token.
 
 ### 8.4 Report
 
@@ -409,14 +423,18 @@ Each event is recorded in a small state file in `DATA_DIR`, so a warning never r
 | `homewan reconfigure` | Rerun the full interview with current values prefilled, then apply |
 | `homewan apply` | Re-render templates and restart what changed |
 | `homewan report --now` | Send the report now |
-| `homewan speedtest --now` | Run one speedtest |
+| `homewan speedtest` | Run one speedtest |
+| `homewan run JOB [--dry-run]` | Run a job now: `speedtest`, `smart`; `--dry-run` prints the data without writing it |
+| `homewan logs SERVICE` | Last 100 log lines of a container |
 | `homewan cap` | Show usage against the cap for the current period |
-| `homewan bucket add/list/remove` | Shared buckets |
+| `homewan bucket add NAME [--retention DAYS]` | Create a bucket for another program and print a write-only token for it, once |
+| `homewan bucket list` | List buckets |
+| `homewan bucket import NAME DIR` | Load a bucket from an `influx backup` folder into a new bucket |
 | `homewan secrets` | Show web logins |
 | `homewan backup [PATH]` | Archive `/etc/homewan` and an InfluxDB backup |
 | `homewan restore PATH` | Rebuild from a backup on a fresh install. Runs the full interview with the backup's values prefilled, then loads the InfluxDB backup. |
 | `homewan update` | Fetch the latest tagged release, migrate config, rebuild, restart |
-| `homewan uninstall [--purge]` | Remove containers, images, timers and `/opt/homewan`. Keeps `/etc/homewan` and `DATA_DIR` unless `--purge`. Lists shared buckets and asks before deleting data. |
+| `homewan uninstall [--purge]` | Remove containers, images, timers and the capture port setting. Keeps `/etc/homewan` and `DATA_DIR` unless `--purge`, and keeps the code folder. Lists shared buckets and asks before deleting data. |
 
 ## 10. Security
 

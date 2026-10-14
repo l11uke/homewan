@@ -1,0 +1,9 @@
+[Unit]
+Description=homewan %i
+Requires=homewan.service
+After=homewan.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/homewan run %i
+TimeoutStartSec=900

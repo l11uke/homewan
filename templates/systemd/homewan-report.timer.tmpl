@@ -1,0 +1,10 @@
+[Unit]
+Description=homewan weekly report, {{REPORT_DAY}} {{REPORT_TIME}} {{TZ}}
+
+[Timer]
+OnCalendar={{REPORT_DAY}} *-*-* {{REPORT_TIME}}:00 {{TZ}}
+Persistent=true
+Unit=homewan-run@report.service
+
+[Install]
+WantedBy=timers.target

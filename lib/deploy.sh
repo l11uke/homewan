@@ -53,6 +53,7 @@ derive_values() {
         printf "DISK_ALL='%s'\n" "$([[ "${CONF[DISK_MODE]:-all}" == all ]] && echo yes || echo no)"
         printf "TELEGRAF_MOUNTS='%s'\n" "$(join , "${mounts[@]}" | sed 's/,/, /g')"
         printf "SPEEDTEST_CALENDAR='%s'\n" "$cal"
+        printf "FEAT_DAILY='%s'\n" "$([[ "${CONF[CAP_WARNINGS]:-}" == yes || "${CONF[DISK_WARNINGS]:-}" == yes ]] && echo yes || echo no)"
     } > "$DERIVED_ENV"
 }
 
@@ -71,6 +72,8 @@ render_all() {
     if feature capture; then render systemd/homewan-capture.service.tmpl systemd/homewan-capture.service || return 1; fi
     if feature speedtest; then render systemd/homewan-speedtest.timer.tmpl systemd/homewan-speedtest.timer || return 1; fi
     if [[ -n "${CONF[SMART_DEVICES]:-}" ]]; then render systemd/homewan-smart.timer.tmpl systemd/homewan-smart.timer || return 1; fi
+    render systemd/homewan-report.timer.tmpl systemd/homewan-report.timer || return 1
+    if grep -q "^FEAT_DAILY='yes'" "$DERIVED_ENV"; then render systemd/homewan-daily.timer.tmpl systemd/homewan-daily.timer || return 1; fi
     chmod -R go-w "$RENDERED"
 }
 

@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+### Weekly report and daily check (homewan-007)
+
+- Weekly report with the previous project's six charts as attachments (speedtest, internet use, Pi usage, drive space, CPU and outdoor temperature, apps per 6 hours) and the top-10 apps table, plus: plan speed lines and an average-vs-plan table, speedtest data use, data cap status with projection, top devices (layout B), drive status, new drives, and drive health. Warnings appear at the top of the email and in the subject.
+- Daily check emails once per event: a drive missing, replaced or back; drive health failing or sector counts rising; data cap at 80%, 100% or projected over.
+- `homewan report [--dry-run]`; timers `homewan-report.timer` and `homewan-daily.timer`.
+- Charts: day ticks now sit at local midnight, and legends sit beside the plot.
+
 ### Fixes from the first real install (homewan-006)
 
 - The installer showed no final screen and no error messages after the setup step started: the deploy log line redirected the whole script's error output to /dev/null.

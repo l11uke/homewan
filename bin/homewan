@@ -27,7 +27,9 @@ Usage: sudo homewan COMMAND
   reconfigure            answer the installer's questions again, then apply
   apply [--build]        re-create files from site.conf and restart what changed
   speedtest              run a speedtest now
-  run JOB [--dry-run]    run a job now: speedtest, smart
+  report [--dry-run]     send the weekly report now; --dry-run saves it to
+                         DATA_DIR/state/report-preview instead of sending
+  run JOB [--dry-run]    run a job now: speedtest, smart, report, daily
   secrets                show the web logins
   logs SERVICE           last 100 log lines of influxdb, telegraf, ntopng, redis or grafana
   bucket list            list the database's buckets
@@ -43,7 +45,7 @@ TXT
 # and the one token that job needs.
 run_tools() {
     local job="$1"; shift
-    local args=(--rm --network homewan_default) k
+    local args=(--rm --network homewan_default -v "${CONF[DATA_DIR]}/state:/state") k
     for k in "${!CONF[@]}"; do args+=(-e "$k=${CONF[$k]}"); done
     args+=(-e INFLUX_URL=http://influxdb:8086)
     case "$job" in
@@ -59,9 +61,19 @@ run_tools() {
                 if [[ -b "$real" ]]; then args+=(--device "$real:$real"); map+=("$name=$real"); fi
             done
             args+=(-e "SMART_DEVICE_PATHS=$(join , "${map[@]}")") ;;
-        *) die "unknown job: $job (speedtest, smart)" ;;
+        report|daily)
+            write_host_state
+            args+=(-e "INFLUX_TOKEN_REPORT=${SECRETS[INFLUX_TOKEN_REPORT]:-}" -e "SMTP_PASSWORD=${SECRETS[SMTP_PASSWORD]:-}") ;;
+        *) die "unknown job: $job (speedtest, smart, report, daily)" ;;
     esac
     docker run "${args[@]}" homewan/tools:local "$job" "$@"
+}
+
+# Facts about the Pi that the report needs and the container cannot see.
+write_host_state() {
+    mkdir -p "${CONF[DATA_DIR]}/state"
+    py hoststate.py "${CONF[DATA_DIR]}/state/host.json" "${CONF[DISK_EXPECTED]:-}" \
+        "${CONF[MGMT_IFACE]:-}" "${CONF[CAPTURE_IFACE]:-}" "${HOST_STATE_FIXTURES:-}"
 }
 
 cmd_secrets() {
@@ -180,6 +192,7 @@ main() {
         up) hw_compose up -d --remove-orphans ;;
         down) hw_compose down ;;
         speedtest) run_tools speedtest "$@" ;;
+        report) run_tools report "$@" ;;
         run) run_tools "${1:?job name}" "${@:2}" ;;
         secrets) cmd_secrets ;;
         logs) hw_compose logs --tail 100 "${1:?service name}" ;;

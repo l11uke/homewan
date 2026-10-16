@@ -231,6 +231,8 @@ in_file "$R/systemd/homewan.service" "RequiresMountsFor=/var/lib/homewan"
 in_file "$R/systemd/homewan-capture.service" "ip link set eth0 up"
 in_file "$R/systemd/homewan-speedtest.timer" "OnCalendar=\*-\*-\* 00/4:07:00"
 in_file "$R/systemd/homewan-smart.timer" "homewan-run@smart.service"
+in_file "$R/systemd/homewan-report.timer" "OnCalendar=Mon \*-\*-\* 08:00:00 Australia/Brisbane"
+in_file "$R/systemd/homewan-daily.timer" "homewan-run@daily.service"
 
 echo "Rendering: no capture, selected drives, no Grafana, keep data forever"
 CASE=render_c
@@ -240,7 +242,8 @@ R="$WORK/drives_selected/etc/rendered"
 compose_ok drives_selected
 not_in_file "$R/compose.yml" "ntopng"; not_in_file "$R/compose.yml" "grafana"; not_in_file "$R/compose.yml" "INIT_RETENTION"
 in_file "$R/telegraf.conf" 'mount_points = \["/"\]'
-[[ ! -e "$R/systemd/homewan-capture.service" && ! -e "$R/systemd/homewan-smart.timer" ]] && ok || fail "unneeded units rendered"
+[[ ! -e "$R/systemd/homewan-capture.service" && ! -e "$R/systemd/homewan-smart.timer" && ! -e "$R/systemd/homewan-daily.timer" ]] && ok || fail "unneeded units rendered"
+[[ -e "$R/systemd/homewan-report.timer" ]] && ok || fail "report timer missing"
 
 echo "Deploy against stand-ins for Docker and InfluxDB, twice"
 CASE=deploy
@@ -286,9 +289,40 @@ else
 fi
 bash "$ROOT/bin/homewan" help | grep -q "bucket add NAME" && ok || fail "help text"
 
+echo "Host state for the report: expected, missing and new drives, link speeds"
+CASE=hoststate
+python3 -I "$ROOT/lib/py/hoststate.py" "$WORK/host.json" "/media/usb=1a2b3c4d5e6f7a8b,/media/gone=XYZ" eth1 eth0 "$FIX/pi4" \
+    && python3 -c 'import json,sys; h=json.load(open(sys.argv[1])); st={d["mount"]: d["status"] for d in h["drives"]}; sys.exit(0 if st=={"/media/usb":"ok","/media/gone":"missing"} and h["mgmt_link_mbps"]==1000 and h["new_drives"]==[] else 1)' "$WORK/host.json" \
+    && ok || fail "host state wrong: $(cat "$WORK/host.json" 2>/dev/null)"
+
+echo "homewan report --dry-run runs the report job with the report token, mail password and state folder"
+CASE=report_cmd
+if [[ $EUID -eq 0 ]]; then
+    PATH="$ROOT/tests/stubs:$PATH" STUB_STATE="$D/state.json" STUB_LOG="$D/calls.log" HOMEWAN_ETC="$D/etc" HOST_STATE_FIXTURES="$FIX/pi4" \
+        bash "$ROOT/bin/homewan" report --dry-run > "$D/report.out" 2>&1 && ok || fail "report command failed: $(tail -2 "$D/report.out")"
+    grep -E "^run .*-v $D/data/state:/state .*INFLUX_TOKEN_REPORT=tok.* .*SMTP_PASSWORD=apppassword .*homewan/tools:local report --dry-run" "$D/calls.log" >/dev/null && ok || fail "docker run arguments wrong: $(grep '^run' "$D/calls.log" | tail -1 | cut -c1-200)"
+    [[ -f "$D/data/state/host.json" ]] && ok || fail "host.json not written"
+else
+    ok; ok; ok
+fi
+
 echo "Python unit tests"
 CASE=python
 if (cd "$ROOT" && python3 -m unittest -q tests.test_python > "$WORK/python.out" 2>&1); then ok; else fail "$(tail -5 "$WORK/python.out")"; fi
+
+echo "Report and daily check tests"
+CASE=report
+if python3 -c "import pandas, matplotlib" 2>/dev/null; then
+    (cd "$ROOT" && python3 -m unittest -q tests.test_report > "$WORK/report.out" 2>&1) && ok || fail "$(tail -8 "$WORK/report.out")"
+elif command -v docker >/dev/null && docker image inspect homewan/tools:local >/dev/null 2>&1 \
+        && docker run --rm --entrypoint python homewan/tools:local -c "import pandas" >/dev/null 2>&1; then
+    # On a Pi without pandas, run them inside homewan's tools image.
+    docker run --rm --entrypoint python -v "$ROOT:/src:ro" -w /src -e PYTHONDONTWRITEBYTECODE=1 homewan/tools:local \
+        -m unittest -q tests.test_report > "$WORK/report.out" 2>&1 && ok || fail "$(tail -8 "$WORK/report.out")"
+else
+    printf '  note: report tests skipped (needs pandas and matplotlib, or the homewan/tools image)\n'
+    ok
+fi
 
 echo "Mirror classifier"
 CASE=classifier

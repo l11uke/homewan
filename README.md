@@ -5,7 +5,7 @@ Monitor your home internet connection from a Raspberry Pi and get a weekly email
 An installer asks about your hardware, your network and your internet plan, tests your wiring, and builds a setup that fits your home. You answer questions; you edit no files.
 
 > [!WARNING]
-> homewan is under construction. The installer sets up traffic capture, the speedtest and Pi health monitoring. The weekly email report is not built yet. [SPEC.md](SPEC.md) describes what is being built.
+> homewan is under construction. Everything in the specification works except the `homewan cap`, `backup`, `restore` and `update` commands. [SPEC.md](SPEC.md) describes what is being built.
 
 ## What you need
 

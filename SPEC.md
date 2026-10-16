@@ -1,6 +1,6 @@
 # homewan specification
 
-Version 0.6 (draft for review), 2026-10-14
+Version 0.7 (draft for review), 2026-10-14
 
 ## 1. Purpose
 
@@ -372,13 +372,21 @@ The `tools` image installs the Ookla CLI from Ookla's signed apt repository. Eac
 
 ### 8.4 Report
 
-The report is a Python package in the `tools` image. Each section is a module that runs only when its feature is on:
+The report is a Python package in the `tools` image (`homewan_tools.report`), run weekly by `homewan-report.timer` at `REPORT_DAY REPORT_TIME` in `TZ` (`Persistent=true`, so a report missed while the Pi was off is sent at the next boot). It covers the 7 days before it runs.
+
+Charts are PNG attachments, numbered in reading order: `1-speedtest`, `2-internet-use`, `3-pi-usage`, `4-drive-space`, `5-temperature`, `6-apps-by-6-hours`. The email body holds the summary tables and, at the top, any warnings. Volumes are in decimal gigabytes (10^9 bytes), as providers count them. Day ticks sit at local midnight.
+
+Before the job starts, the `homewan` command writes `DATA_DIR/state/host.json`: each expected drive's status (by filesystem UUID), mounted drives that are not on the expected list, and the link speeds of both ports. The container cannot see these itself.
+
+`homewan report --dry-run` builds the report and saves the email and charts to `DATA_DIR/state/report-preview/` without sending.
+
+Each section runs only when its feature is on:
 
 | Section | Feature |
 |---|---|
 | Speed trend against plan speed | speedtest |
 | WAN usage, cumulative, with the speedtest share shown separately | capture |
-| Data cap: usage this period, allowance left, days left, projected usage at reset from the last 7 days, and speedtest data this period. Peak and off-peak on separate lines for split plans. Labelled "measured by homewan". | capture, cap set |
+| Data cap: usage this period, allowance left, days left, projected usage at reset from the last 7 days, and speedtest data this period. Peak and off-peak on separate lines for split plans. Labelled "measured by homewan". For plans that count downloads only, the figure still counts both directions and says so: on a mirror between modem and router, ntopng cannot reliably tell the two apart. | capture, cap set |
 | Protocol breakdown by 6-hour window, and the top-10 table | capture |
 | Top 10 devices by usage | capture, layout B |
 | CPU, memory and disk use | health |
@@ -398,7 +406,7 @@ Flux rules carried over from the previous project:
 
 ### 8.5 Daily check
 
-A daily timer, `homewan-daily.timer`, runs at 07:00 when `CAP_WARNINGS=yes` or `DISK_WARNINGS=yes`.
+A daily timer, `homewan-daily.timer`, runs the `daily` job at 07:00 in `TZ` when `CAP_WARNINGS=yes` or `DISK_WARNINGS=yes`. All events found in one run go out in one email. Sent events are recorded in `DATA_DIR/state/daily.json`; a failed send leaves the record unchanged, so the next run tries again.
 
 Drive checks, with `DISK_WARNINGS=yes`: email once when an expected drive is missing or replaced, and once when it returns. With `SMART_DEVICES` set, also email once when a drive's SMART status changes to failing.
 
@@ -424,7 +432,8 @@ Each event is recorded in a small state file in `DATA_DIR`, so a warning never r
 | `homewan apply` | Re-render templates and restart what changed |
 | `homewan report --now` | Send the report now |
 | `homewan speedtest` | Run one speedtest |
-| `homewan run JOB [--dry-run]` | Run a job now: `speedtest`, `smart`; `--dry-run` prints the data without writing it |
+| `homewan report [--dry-run]` | Send the weekly report now, or with `--dry-run` save it to `DATA_DIR/state/report-preview/` |
+| `homewan run JOB [--dry-run]` | Run a job now: `speedtest`, `smart`, `report`, `daily`; `--dry-run` writes or sends nothing |
 | `homewan logs SERVICE` | Last 100 log lines of a container |
 | `homewan cap` | Show usage against the cap for the current period |
 | `homewan bucket add NAME [--retention DAYS]` | Create a bucket for another program and print a write-only token for it, once |

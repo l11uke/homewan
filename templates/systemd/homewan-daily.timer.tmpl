@@ -1,0 +1,10 @@
+[Unit]
+Description=homewan daily check for missing drives, drive health and the data cap
+
+[Timer]
+OnCalendar=*-*-* 07:00:00 {{TZ}}
+Persistent=true
+Unit=homewan-run@daily.service
+
+[Install]
+WantedBy=timers.target

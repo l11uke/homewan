@@ -3,7 +3,18 @@ import sys
 
 from . import smart, speedtest
 
-JOBS = {"speedtest": speedtest.main, "smart": smart.main}
+
+def _report(args):
+    from .report import weekly
+    return weekly.main(args)
+
+
+def _daily(args):
+    from .report import daily
+    return daily.main(args)
+
+
+JOBS = {"speedtest": speedtest.main, "smart": smart.main, "report": _report, "daily": _daily}
 
 
 def main():

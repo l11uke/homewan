@@ -244,34 +244,82 @@ setup_ntopng() {
 
 # ---------- the whole sequence ----------
 
+# Progress: deploy prints numbered steps with timings to the terminal, and
+# condensed download and build progress. HOMEWAN_VERBOSE=1 (or --verbose)
+# streams every line. Everything also goes to deploy.log.
+HOMEWAN_VERBOSE="${HOMEWAN_VERBOSE:-0}"
+STEP_N=0
+STEP_TOTAL=8
+STEP_START=0
+
+step() {
+    local now; now=$(date +%s)
+    if ((STEP_N > 0)); then printf '        finished in %ss\n' $(( now - STEP_START )) >&2; fi
+    STEP_N=$((STEP_N + 1)); STEP_START=$now
+    printf '\n[%d/%d] %s\n' "$STEP_N" "$STEP_TOTAL" "$1" >&2
+    printf '\n== %s %s\n' "$(date '+%F %T')" "$1" >&3
+}
+
+# run_logged CMD...: output to deploy.log; on the terminal, condensed progress
+# (or everything with HOMEWAN_VERBOSE=1). Returns the command's exit status.
+run_logged() {
+    local v=""; ((HOMEWAN_VERBOSE)) && v=--verbose
+    "$@" 2>&1 | tee -a /dev/fd/3 | py progress.py $v >&2
+    return "${PIPESTATUS[0]}"
+}
+
+# run_quiet CMD...: output to deploy.log only; on failure, its last lines on the terminal.
+run_quiet() {
+    # Functions run in this shell (no pipe), so the values they set survive.
+    if ((HOMEWAN_VERBOSE)); then "$@" > >(tee -a /dev/fd/3 >&2) 2>&1; return; fi
+    local tmp rc; tmp="$(mktemp)"
+    "$@" > "$tmp" 2>&1; rc=$?
+    cat "$tmp" >&3
+    ((rc == 0)) || { printf '    last output:\n' >&2; tail -15 "$tmp" | sed 's/^/      /' >&2; }
+    rm -f "$tmp"
+    return $rc
+}
+
+fail() { die "$1. Full detail: $HOMEWAN_LOG_DIR/deploy.log"; }
+
 # deploy [--build]: everything apply does; --build rebuilds homewan's images.
 deploy() {
-    local build="${1:-}"
+    local build="${1:-}" t0; t0=$(date +%s)
     mkdir -p "$HOMEWAN_LOG_DIR"
     # Only file descriptor 3 goes to the log. (exec applies every redirection
     # on its line to the whole script, so nothing else may be redirected here.)
     if [[ -w "$HOMEWAN_LOG_DIR" ]]; then exec 3>>"$HOMEWAN_LOG_DIR/deploy.log"; else exec 3>/dev/null; fi
-    step() { ui_info "$1"; printf '\n== %s %s\n' "$(date '+%F %T')" "$1" >&3; }
+    STEP_N=0
+    printf '\nSetting up homewan. Full detail goes to %s/deploy.log\n' "$HOMEWAN_LOG_DIR" >&2
 
-    step "Checking Docker..."; ensure_docker
+    step "Checking Docker"; ensure_docker
     conf_load
-    step "Preparing folders and settings files..."; make_dirs
-    render_all || die "could not render configuration files"
-    step "Configuring capture port..."; configure_capture_port
+    step "Preparing folders and settings files"; make_dirs
+    render_all || fail "could not render configuration files"
+    step "Configuring the capture port"; configure_capture_port
 
     if [[ "$build" == --build ]] || ! docker image inspect homewan/tools:local >/dev/null 2>&1 \
         || { feature capture && ! docker image inspect homewan/ntopng:local >/dev/null 2>&1; }; then
-        step "Downloading and building container images. This takes 5 to 15 minutes on a Pi..."
-        hw_compose pull --ignore-buildable >&3 2>&1 || die "could not download images. See $HOMEWAN_LOG_DIR/deploy.log"
-        hw_compose --profile tools build >&3 2>&1 || die "could not build images. See $HOMEWAN_LOG_DIR/deploy.log"
+        step "Downloading images (InfluxDB, Telegraf$(feature capture && printf ', Redis')$(feature grafana && printf ', Grafana'))"
+        run_logged hw_compose --progress plain pull --ignore-buildable || fail "could not download images"
+        step "Building homewan's own images$(feature capture && printf ' (ntopng takes longest on a Pi)')"
+        run_logged hw_compose --progress plain --profile tools build || fail "could not build images"
+    else
+        step "Images are up to date"
+        step "No build needed"
     fi
 
-    step "Setting up the database..."; setup_influx >&3 2>&1 || die "database setup failed. See $HOMEWAN_LOG_DIR/deploy.log"
-    step "Setting up ntopng..."; setup_ntopng >&3 2>&1 || die "ntopng setup failed. See $HOMEWAN_LOG_DIR/deploy.log"
-    step "Starting homewan..."
-    hw_compose up -d --remove-orphans >&3 2>&1 || die "containers did not start. See $HOMEWAN_LOG_DIR/deploy.log"
+    step "Setting up the database"; run_quiet setup_influx || fail "database setup failed"
+    if feature capture; then
+        printf '        buckets, tokens and ntopng'"'"'s login are ready\n' >&2
+        run_quiet setup_ntopng || fail "ntopng setup failed"
+    fi
+    step "Starting homewan"
+    run_quiet hw_compose up -d --remove-orphans || fail "containers did not start"
     # Containers that read settings at start-up pick up changes.
-    if feature capture; then hw_compose restart ntopng >&3 2>&1; fi
-    hw_compose restart telegraf >&3 2>&1
-    step "Installing timers..."; install_units
+    if feature capture; then run_quiet hw_compose restart ntopng; fi
+    run_quiet hw_compose restart telegraf
+    step "Installing timers"; install_units
+    printf '        finished in %ss\n\nSet-up took %s.\n' $(( $(date +%s) - STEP_START )) \
+        "$(( ($(date +%s) - t0) / 60 ))m$(( ($(date +%s) - t0) % 60 ))s" >&2
 }

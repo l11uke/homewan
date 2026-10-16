@@ -25,7 +25,9 @@ Usage: sudo homewan COMMAND
   status                 containers, timers and versions
   doctor                 check that data is arriving and timers are running
   reconfigure            answer the installer's questions again, then apply
-  apply [--build]        re-create files from site.conf and restart what changed
+  apply [--build] [--verbose]
+                         re-create files from site.conf and restart what changed;
+                         --build rebuilds the images, --verbose shows every line
   speedtest              run a speedtest now
   report [--dry-run]     send the weekly report now; --dry-run saves it to
                          DATA_DIR/state/report-preview instead of sending
@@ -188,7 +190,9 @@ main() {
     case "$cmd" in
         status) cmd_status ;;
         doctor) cmd_doctor ;;
-        apply) deploy "${1:-}"; verify_all 60; verify_text ;;
+        apply)
+            local a b=""; for a in "$@"; do case "$a" in --build) b=--build ;; --verbose) export HOMEWAN_VERBOSE=1 ;; esac; done
+            deploy "$b"; printf '\nChecking...\n'; verify_all 60; verify_text ;;
         up) hw_compose up -d --remove-orphans ;;
         down) hw_compose down ;;
         speedtest) run_tools speedtest "$@" ;;

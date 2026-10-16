@@ -7,6 +7,7 @@
 #                     and containers from an older stack only raise a warning
 #   --alongside       install next to an older monitoring stack that is still
 #                     running (it keeps its ports; homewan takes free ones)
+#   --verbose         show every line of the image downloads and builds
 #   --answers FILE    test suite only (needs HOMEWAN_TEST=1)
 set -uo pipefail
 
@@ -40,10 +41,11 @@ while (($#)); do
     case "$1" in
         --text) UI_MODE=text ;;
         --preview|--alongside) ;;
+        --verbose) HOMEWAN_VERBOSE=1 ;;
         --answers)
             [[ "${HOMEWAN_TEST:-0}" == 1 ]] || die "--answers is for the test suite only. Run the installer without it."
             HOMEWAN_ANSWERS="${2:?--answers needs a file}"; shift ;;
-        -h|--help) sed -n '2,11p' "${BASH_SOURCE[0]}"; exit 0 ;;
+        -h|--help) sed -n '2,12p' "${BASH_SOURCE[0]}"; exit 0 ;;
         *) die "unknown option: $1" ;;
     esac
     shift
@@ -97,15 +99,17 @@ Delete the preview with: sudo rm -rf $HOMEWAN_ETC"
 
     is_test && { log "Settings saved to $SITE_CONF (test mode: nothing set up)"; return; }
 
+    # Leave the full-screen dialogs, so set-up progress scrolls in the terminal.
+    [[ "$UI_MODE" == whiptail ]] && clear
     deploy --build
     phase_verify
 }
 
 phase_verify() {
-    ui_info "Checking that everything works. This takes up to 2 minutes..."
+    printf '\nChecking that everything works (up to 2 minutes)...\n' >&2
     verify_all 120
     if feature speedtest && ui_yesno FIRST_SPEEDTEST "First speedtest" "Run a first speedtest now? It takes about 30 seconds and uses about $(( (${CONF[PLAN_DOWN_MBPS]} + ${CONF[PLAN_UP_MBPS]}) * 10 / 8 )) MB." yes; then
-        ui_info "Running a speedtest..."
+        printf 'Running a speedtest...\n' >&2
         local out
         if out="$(run_first_speedtest 2>&1)"; then vpass "first speedtest: ${out#OK: }"; else vfail "first speedtest failed: $(tail -1 <<<"$out")"; fi
     fi

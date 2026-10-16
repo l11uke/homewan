@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+### Set-up progress (homewan-008)
+
+- Set-up now prints numbered steps with the time each took, one line per image downloaded and per build step (with its duration), and a live status line showing the latest output, so long builds visibly progress. `--verbose` on `install.sh` or `homewan apply` prints every line. Everything still goes to `/var/log/homewan/deploy.log`.
+- On failure, the last lines of the failing step's output appear on screen.
+
 ### Weekly report and daily check (homewan-007)
 
 - Weekly report with the previous project's six charts as attachments (speedtest, internet use, Pi usage, drive space, CPU and outdoor temperature, apps per 6 hours) and the top-10 apps table, plus: plan speed lines and an average-vs-plan table, speedtest data use, data cap status with projection, top devices (layout B), drive status, new drives, and drive health. Warnings appear at the top of the email and in the subject.

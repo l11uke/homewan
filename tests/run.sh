@@ -306,6 +306,14 @@ else
     ok; ok; ok
 fi
 
+echo "Progress filter: one line per download and build step, with durations"
+CASE=progress
+P="$(python3 -I "$ROOT/lib/py/progress.py" < "$FIX/progress/build.txt")"
+grep -q "influxdb: downloaded" <<<"$P" && grep -q "ntopng: step 2 of 3: RUN apt-get update" <<<"$P" \
+    && grep -q "done in 2m31s" <<<"$P" && grep -q "homewan/tools:local: built" <<<"$P" \
+    && ! grep -q "Setting up ntopng" <<<"$P" && ok || fail "progress output: $P"
+[[ "$(python3 -I "$ROOT/lib/py/progress.py" --verbose < "$FIX/progress/build.txt" | wc -l)" == "$(wc -l < "$FIX/progress/build.txt")" ]] && ok || fail "--verbose drops lines"
+
 echo "Python unit tests"
 CASE=python
 if (cd "$ROOT" && python3 -m unittest -q tests.test_python > "$WORK/python.out" 2>&1); then ok; else fail "$(tail -5 "$WORK/python.out")"; fi

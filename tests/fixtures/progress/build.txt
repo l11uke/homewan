@@ -1,0 +1,18 @@
+ influxdb Pulling
+ telegraf Pulling
+ influxdb Pulled
+ telegraf Pulled
+#1 [internal] load local bake definitions
+#1 DONE 0.0s
+#5 [ntopng 1/3] FROM docker.io/library/debian:trixie-slim@sha256:abc
+#5 DONE 3.1s
+#6 [ntopng 2/3] RUN set -eux;     apt-get update;     apt-get install -y --no-install-recommends ca-certificates wget gnupg lsb-release;
+#6 0.512 Get:1 http://deb.debian.org/debian trixie InRelease [140 kB]
+#6 98.20 Setting up ntopng (7.1.261007-29478) ...
+#6 DONE 151.4s
+#7 [tools 3/5] RUN pip install --no-cache-dir -r /tmp/requirements.txt
+#7 12.1 Collecting pandas==3.0.5
+#7 CACHED
+#19 naming to docker.io/homewan/ntopng:local 0.0s done
+ Image homewan/ntopng:local Built
+ Image homewan/tools:local Built

@@ -42,7 +42,7 @@ def _empty(ax, text):
 
 def speedtest(df, plan_down, plan_up, start, end, tz, path):
     fig, ax = plt.subplots(figsize=(11, 4.5))
-    ax.set_title(f"Speedtest, {start.astimezone(tz):%d %b} to {end.astimezone(tz):%d %b}")
+    ax.set_title(f"Speedtest, {start.astimezone(tz):%-d %b} to {end.astimezone(tz):%-d %b}")
     if df is not None and not df.empty:
         if "download" in df:
             ax.plot(df.index, df["download"], marker="o", markersize=3, label="Download (Mbps)", color="#2563eb")
@@ -105,7 +105,7 @@ def storage(df, tz, path, now):
     fig, ax = plt.subplots(figsize=(10, 1.0 * n + 1.6))
     fig.patch.set_facecolor(surface)
     ax.set_facecolor(surface)
-    ax.set_title(f"Drive space ({now.astimezone(tz):%d %b %Y})", color=ink)
+    ax.set_title(f"Drive space ({now.astimezone(tz):%-d %b %Y})", color=ink)
     if has:
         y = list(range(n))
         used = df["pct"].tolist()

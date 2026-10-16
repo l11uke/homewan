@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+### Report polish (homewan-010)
+
+- No more `MissingPivotFunction` warnings in the report's output and the system log.
+- Dates read "9 Oct", not "09 Oct".
+
 ### Fix for re-running set-up (homewan-009)
 
 - `homewan apply` failed at "Setting up the database" on any re-run with "token already exists": the check for ntopng's existing 1.x login read the wrong field. InfluxDB lists a 1.x login's user name under `token`; `userName` is its owner. The test stand-in now behaves like the real server, rejecting a duplicate login.

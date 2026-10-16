@@ -220,7 +220,7 @@ def build_report(source, s, now, outdir):
                  f"{r.projected_gb:.0f} GB ({r.projected_percent:.0f}%)"] for r in c["rows"]]
         warn = [r for r in c["rows"] if r.projected_gb > r.allowance_gb]
         body = table(["", "Used", "Allowance", "Used %", "Projected at reset"], rows, ["left"] + ["right"] * 4)
-        body += (f"<p>Period {c['start']:%d %b} to {c['end'] - timedelta(days=1):%d %b}, {c['days_left']:.0f} days left. "
+        body += (f"<p>Period {c['start']:%-d %b} to {c['end'] - timedelta(days=1):%-d %b}, {c['days_left']:.0f} days left. "
                  f"Speedtests used {c['speedtest_gb']:.1f} GB of it. Measured by homewan"
                  + (f", adjusted by {s.get('CAP_ADJUST_PERCENT')}%" if float(s.get('CAP_ADJUST_PERCENT') or 0) else "")
                  + "; your provider's meter can differ by a few percent.</p>")
@@ -273,7 +273,7 @@ def build_report(source, s, now, outdir):
                     notes.append(f"<b>Drive health:</b> {esc(d.get('model') or d['drive'])} shows signs of failing. Back up its data.")
             sections.append(f"<h3>Drive health</h3>{table(['Drive', 'Health', 'Temp', 'Powered on', 'Reallocated sectors (this week)', 'Pending sectors'], rows, ['left', 'left', 'right', 'right', 'right', 'right'])}")
 
-    week = f"{start.astimezone(tz):%d %b} to {end.astimezone(tz):%d %b %Y}"
+    week = f"{start.astimezone(tz):%-d %b} to {end.astimezone(tz):%-d %b %Y}"
     subject = f"homewan weekly report, {week}" + (" (needs attention)" if notes else "")
     note_html = "".join(f'<p style="background:#fff4e5;border-left:4px solid #f59e0b;padding:6px 10px">{n}</p>' for n in notes)
     html_body = (f'<html><body style="font-family:sans-serif;max-width:720px">'

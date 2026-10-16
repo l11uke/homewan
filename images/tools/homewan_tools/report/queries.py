@@ -7,8 +7,17 @@ Rules learned on the previous project (see SPEC 8.4):
 - The client timeout is 60 seconds; the protocol queries scan many tags.
 """
 import os
+import warnings
 
 import pandas as pd
+
+# The report reshapes query results in pandas on purpose; the client's advice
+# to pivot inside Flux only adds noise to the log.
+try:
+    from influxdb_client.client.warnings import MissingPivotFunction
+    warnings.simplefilter("ignore", MissingPivotFunction)
+except ImportError:
+    pass
 
 NETWORK, SYSTEM = "network", "system"
 

@@ -66,7 +66,10 @@ if args[:1] == ["compose"]:
                 if op == "list":
                     out = json.dumps(st["v1"])
                 elif op == "create":
-                    st["v1"].append({"userName": flag("--username")})
+                    # Like the real server: the user name is the 1.x token, and must be unique.
+                    if any(v["token"] == flag("--username") for v in st["v1"]):
+                        sys.exit("Error: failed to create new authorization: 422 Unprocessable Entity: token already exists")
+                    st["v1"].append({"token": flag("--username"), "userName": "admin"})
             elif sub[0] == "query":
                 out = "#datatype,string\n,result,table,_value\n,_result,0,5\n"
         elif cmd[:1] == ["redis-cli"]:

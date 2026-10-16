@@ -187,10 +187,12 @@ ensure_token() {
     SECRETS[$key]="$t"
 }
 
+# InfluxDB lists a 1.x login with its user name in the "token" field
+# ("userName" is the InfluxDB user who owns it, usually admin).
 ensure_ntopng_login() {
     local nid="$1" exists
     exists="$(hw_influx v1 auth list --org "${CONF[INFLUX_ORG]}" --json 2>/dev/null \
-        | python3 -c 'import json,sys; print("yes" if any(a.get("userName")=="ntopng" for a in json.load(sys.stdin)) else "no")' 2>/dev/null)"
+        | python3 -c 'import json,sys; print("yes" if any(a.get("token")=="ntopng" for a in json.load(sys.stdin)) else "no")' 2>/dev/null)"
     if [[ "$exists" == yes ]]; then
         hw_influx v1 auth set-password --username ntopng --password "${SECRETS[NTOPNG_INFLUX_PASSWORD]}" >/dev/null
     else

@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### Fix for re-running set-up (homewan-009)
+
+- `homewan apply` failed at "Setting up the database" on any re-run with "token already exists": the check for ntopng's existing 1.x login read the wrong field. InfluxDB lists a 1.x login's user name under `token`; `userName` is its owner. The test stand-in now behaves like the real server, rejecting a duplicate login.
+- `tests/run.sh --quiet` prints one line per test group as it goes.
+- Telegraf: `skip_processors_after_aggregators` set explicitly, silencing a start-up warning.
+
 ### Set-up progress (homewan-008)
 
 - Set-up now prints numbered steps with the time each took, one line per image downloaded and per build step (with its duration), and a live status line showing the latest output, so long builds visibly progress. `--verbose` on `install.sh` or `homewan apply` prints every line. Everything still goes to `/var/log/homewan/deploy.log`.

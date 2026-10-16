@@ -6,6 +6,8 @@
   flush_interval = "60s"
   hostname = "homewan"
   omit_hostname = false
+  # homewan uses no processors or aggregators; set explicitly to silence the start-up warning.
+  skip_processors_after_aggregators = true
 
 [[outputs.influxdb_v2]]
   urls = ["http://influxdb:8086"]

@@ -10,8 +10,15 @@ FIX="$ROOT/tests/fixtures"
 WORK="$(mktemp -d)"
 trap '[[ -n "${HOMEWAN_TEST_KEEP:-}" ]] && printf "Test files kept in %s\n" "$WORK" || rm -rf "$WORK"' EXIT
 PASS=0; FAIL=0; CASE=""
-# --quiet: print only failures and the summary. Exit status is non-zero on any failure.
-if [[ "${1:-}" == --quiet ]]; then echo() { :; }; fi
+# --quiet: one line per test group, failure details, and the summary.
+# Exit status is non-zero on any failure.
+GROUP=""; GROUP_FAIL=0
+group_end() {
+    [[ -n "$GROUP" ]] || return 0
+    local r="ok"; ((FAIL > GROUP_FAIL)) && r="$((FAIL - GROUP_FAIL)) FAILED"
+    printf '  %-74s %s\n' "${GROUP:0:74}" "$r"
+}
+if [[ "${1:-}" == --quiet ]]; then echo() { group_end; GROUP="$*"; GROUP_FAIL=$FAIL; }; fi
 
 ok()   { PASS=$((PASS + 1)); }
 fail() { FAIL=$((FAIL + 1)); printf '  FAIL [%s] %s\n' "$CASE" "$*"; }
@@ -263,7 +270,7 @@ sec() { sed -n "s/^$1='\(.*\)'\$/\1/p" "$D/etc/secrets.env"; }
 [[ -n "$(sec INFLUX_TOKEN_TELEGRAF)" && -n "$(sec INFLUX_TOKEN_SPEEDTEST)" && -n "$(sec INFLUX_TOKEN_REPORT)" && -n "$(sec INFLUX_TOKEN_GRAFANA)" ]] && ok || fail "tokens missing from secrets.env"
 [[ "$(sec SMTP_PASSWORD)" == apppassword ]] && ok || fail "SMTP password lost during deploy"
 T1="$(sec INFLUX_TOKEN_TELEGRAF)"
-python3 -c 'import json,sys; s=json.load(open(sys.argv[1])); sys.exit(0 if set(s["buckets"])=={"network","system"} and len(s["auths"])==4 and s["v1"]==[{"userName":"ntopng"}] else 1)' "$D/state.json" && ok || fail "buckets/tokens wrong: $(cat "$D/state.json")"
+python3 -c 'import json,sys; s=json.load(open(sys.argv[1])); sys.exit(0 if set(s["buckets"])=={"network","system"} and len(s["auths"])==4 and [v["token"] for v in s["v1"]]==["ntopng"] else 1)' "$D/state.json" && ok || fail "buckets/tokens wrong: $(cat "$D/state.json")"
 python3 -c 'import json,sys; r=json.load(open(sys.argv[1]))["redis"]; sys.exit(0 if r.get("ntopng.prefs.timeseries_driver")=="influxdb" and r.get("ntopng.prefs.ts_post_data_url")=="http://127.0.0.1:8086" and r.get("ntopng.prefs.admin_password_changed")=="1" and len(r.get("ntopng.user.admin.password",""))==32 else 1)' "$D/state.json" && ok || fail "ntopng settings wrong"
 in_file "$D/nm.conf" "unmanaged-devices=interface-name:eth0"
 [[ -f "$D/systemd/homewan.service" && -f "$D/systemd/homewan-speedtest.timer" && -f "$D/systemd/homewan-smart.timer" ]] && ok || fail "units not installed"
@@ -340,5 +347,6 @@ c() { python3 -I "$ROOT/lib/py/mirror_classify.py" 9.9.9.9 192.168.1.0/24 < "$FI
 [[ "$(c empty)" == $'NO_PACKETS\tno' ]] && ok || fail "empty: $(c empty)"
 [[ "$(c pppoe)" == $'WAN\tyes' ]] && ok || fail "pppoe: $(c pppoe)"
 
+group_end
 printf '%d passed, %d failed\n' "$PASS" "$FAIL"
 ((FAIL == 0))

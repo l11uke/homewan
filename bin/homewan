@@ -79,13 +79,15 @@ write_host_state() {
 }
 
 cmd_secrets() {
-    printf 'Web logins (user name admin for all):\n\n'
     local ip; ip="$(ip -4 -o addr show "${CONF[MGMT_IFACE]}" 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | head -1)"
     ip="${ip:-this-pi}"
-    if feature capture; then printf '  ntopng    http://%s:%s    %s\n' "$ip" "${CONF[NTOPNG_PORT]}" "${SECRETS[NTOPNG_ADMIN_PASSWORD]}"; fi
-    if feature grafana; then printf '  Grafana   http://%s:%s    %s\n' "$ip" "${CONF[GRAFANA_PORT]}" "${SECRETS[GRAFANA_ADMIN_PASSWORD]}"; fi
-    local host="$ip"; [[ "${CONF[INFLUX_BIND]}" == 127.0.0.1 ]] && host="localhost (this Pi only)"
-    printf '  InfluxDB  http://%s:%s    %s\n' "$host" "${CONF[INFLUX_PORT]}" "${SECRETS[INFLUX_ADMIN_PASSWORD]}"
+    login() { printf '  %s\n    address   %s\n    user      admin\n    password  %s\n\n' "$1" "$2" "$3"; }
+    printf 'Web logins\n\n'
+    if feature capture; then login ntopng "http://$ip:${CONF[NTOPNG_PORT]}" "${SECRETS[NTOPNG_ADMIN_PASSWORD]}"; fi
+    if feature grafana; then login Grafana "http://$ip:${CONF[GRAFANA_PORT]}" "${SECRETS[GRAFANA_ADMIN_PASSWORD]}"; fi
+    local addr="http://$ip:${CONF[INFLUX_PORT]}"
+    [[ "${CONF[INFLUX_BIND]}" == 127.0.0.1 ]] && addr="http://localhost:${CONF[INFLUX_PORT]} (from this Pi only)"
+    login InfluxDB "$addr" "${SECRETS[INFLUX_ADMIN_PASSWORD]}"
 }
 
 set_shared_buckets() {
@@ -132,15 +134,33 @@ cmd_status() {
     fi
 }
 
+# Notes on links slower than the plan: a slow link speed, or a USB adapter
+# on a USB 2 connection (which reports a gigabit link but carries far less).
+link_notes() {
+    local down="${CONF[PLAN_DOWN_MBPS]:-0}" both=$(( ${CONF[PLAN_DOWN_MBPS]:-0} + ${CONF[PLAN_UP_MBPS]:-0} ))
+    local name speed usb
+    while IFS=$'\t' read -r name _ _ _ _ _ _ speed usb; do
+        if [[ "$name" == "${CONF[MGMT_IFACE]:-}" ]]; then
+            if [[ "$speed" =~ ^[0-9]+$ ]] && (( speed < down )); then
+                printf '  --    the Pi'"'"'s own connection (%s) runs at %s Mbps, below your %s Mbps plan; speedtests top out near %s Mbps\n' "$name" "$speed" "$down" "$(( speed * 94 / 100 ))"
+            elif [[ "$usb" == 480 ]] && (( down > USB2_MBPS )); then
+                printf '  --    the Pi'"'"'s own connection (%s) is a USB adapter on a USB 2 connection; speedtests top out around 200-300 Mbps. Use a blue USB 3 port, with any converter rated USB 3.\n' "$name"
+            fi
+        elif [[ -n "${CONF[CAPTURE_IFACE]:-}" && "$name" == "${CONF[CAPTURE_IFACE]}" ]]; then
+            if [[ "$speed" =~ ^[0-9]+$ ]] && (( speed < both )); then
+                printf '  --    the capture port (%s) runs at %s Mbps, below both directions of your plan together; busy periods drop traffic\n' "$name" "$speed"
+            elif [[ "$usb" == 480 ]] && (( both > USB2_MBPS )); then
+                printf '  --    the capture port (%s) is a USB adapter on a USB 2 connection; busy periods drop traffic\n' "$name"
+            fi
+        fi
+    done < <(py netinfo.py "$(is_test && printf %s "$HOMEWAN_FIXTURES")")
+}
+
 cmd_doctor() {
     printf 'Checking...\n'
     verify_all 0
     verify_text
-    local ms; ms="$(cat "/sys/class/net/${CONF[MGMT_IFACE]}/speed" 2>/dev/null)"
-    if [[ "$ms" =~ ^[0-9]+$ ]] && (( ms > 0 && ms < ${CONF[PLAN_DOWN_MBPS]:-0} )); then
-        printf '  --    the Pi'"'"'s own connection (%s) runs at %s Mbps, below your %s Mbps plan; speedtests top out near %s Mbps\n' \
-            "${CONF[MGMT_IFACE]}" "$ms" "${CONF[PLAN_DOWN_MBPS]}" "$(( ms * 94 / 100 ))"
-    fi
+    link_notes
     if [[ -n "${CONF[DISK_EXPECTED]:-}" ]]; then
         local e m u actual
         IFS=',' read -ra _e <<<"${CONF[DISK_EXPECTED]}"

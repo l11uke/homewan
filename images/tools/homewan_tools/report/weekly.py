@@ -154,6 +154,9 @@ def table(headers, rows, align=None):
     return f'<table style="border-collapse:collapse;font-size:14px">{th and "<tr>" + th + "</tr>"}{trs}</table>'
 
 
+# Network traffic a USB 2 Ethernet adapter carries in practice (lib/common.sh USB2_MBPS).
+USB2_MBPS = 250
+
 OVER = {"slowed": "your speed is slowed", "charged": "extra data is charged", "cut_off": "your internet stops until the reset"}
 
 
@@ -169,6 +172,10 @@ def build_report(source, s, now, outdir):
     if ml and s.has("speedtest") and ml < s.plan_down:
         notes.append(f"The Pi's own connection ({esc(host.get('mgmt_iface'))}) runs at {ml} Mbps, so speedtests "
                      f"cannot show more than about {ml * 94 // 100} Mbps of your {s.plan_down} Mbps plan.")
+    elif host.get("mgmt_usb_mbps") == 480 and s.has("speedtest") and s.plan_down > USB2_MBPS:
+        notes.append(f"The Pi's own connection ({esc(host.get('mgmt_iface'))}) is a USB adapter on a USB 2 connection, "
+                     f"so speedtests stop around 200 to 300 Mbps of your {s.plan_down} Mbps plan. "
+                     f"A blue USB 3 port, with any converter rated USB 3, removes the limit.")
     for d in host.get("drives", []):
         if d.get("status") == "missing":
             notes.append(f"<b>Drive missing:</b> nothing is mounted at {esc(d['mount'])}.")

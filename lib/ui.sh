@@ -145,6 +145,8 @@ ui_menu() {
     for ((i = 1; i <= $#; i += 2)); do tags+=("${!i}"); done
     case "$UI_MODE" in
         answers)
+            # Tests read the screens shown from this transcript.
+            [[ -n "${HOMEWAN_UI_TRANSCRIPT:-}" ]] && printf '== %s ==\n%s\n' "$title" "$text" >> "$HOMEWAN_UI_TRANSCRIPT"
             _ui_answer "$key" "$default"
             [[ " ${tags[*]} " == *" $UI_REPLY "* ]] || die "answer for $key is '$UI_REPLY', expected one of: ${tags[*]}"
             ;;

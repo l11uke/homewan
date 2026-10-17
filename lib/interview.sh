@@ -304,11 +304,17 @@ Continue with ${ANS[CAPTURE_IFACE]}?" no || { phase_network; return; }
 # Warn when a port is slower than the internet plan: the speedtest can never
 # measure more than the Pi's own link, and a slow capture port drops traffic.
 check_link_speeds() {
-    local mgmt="${ANS[MGMT_IFACE]}" cap="${ANS[CAPTURE_IFACE]:-}" ms cs msg=""
+    local mgmt="${ANS[MGMT_IFACE]}" cap="${ANS[CAPTURE_IFACE]:-}" ms cs mu cu msg="" usb2=0
     local down="${ANS[PLAN_DOWN_MBPS]}" both=$(( ANS[PLAN_DOWN_MBPS] + ANS[PLAN_UP_MBPS] ))
-    ms="$(net_field "$mgmt" 8)"; cs=""; [[ -n "$cap" ]] && cs="$(net_field "$cap" 8)"
+    ms="$(net_field "$mgmt" 8)"; mu="$(net_field "$mgmt" 9)"; cs=""; cu=""
+    [[ -n "$cap" ]] && { cs="$(net_field "$cap" 8)"; cu="$(net_field "$cap" 9)"; }
     if [[ "$ms" =~ ^[0-9]+$ ]] && (( ms < down )) && goal speed; then
         msg+="The Pi's own connection ($mgmt) runs at $ms Mbps, slower than your $down Mbps plan. The speedtest runs through it, so it can never show more than about $(( ms * 94 / 100 )) Mbps.
+
+"
+    elif [[ "$mu" == 480 ]] && (( down > USB2_MBPS )) && goal speed; then
+        usb2=1
+        msg+="The Pi's own connection ($mgmt) is a USB adapter on a USB 2 connection. A USB 2 connection carries roughly 200 to 300 Mbps of network traffic, below your $down Mbps plan, so speedtests stop in that range.
 
 "
     fi
@@ -316,10 +322,17 @@ check_link_speeds() {
         msg+="The capture port ($cap) runs at $cs Mbps. The mirror copies both directions of your $down/${ANS[PLAN_UP_MBPS]} Mbps connection to it, so at busy times it drops traffic and usage figures come out low.
 
 "
+    elif [[ "$cu" == 480 ]] && (( both > USB2_MBPS )); then
+        usb2=1
+        msg+="The capture port ($cap) is a USB adapter on a USB 2 connection, which carries roughly 200 to 300 Mbps. The mirror copies both directions of your $down/${ANS[PLAN_UP_MBPS]} Mbps connection to it, so at busy times it drops traffic and usage figures come out low.
+
+"
     fi
     [[ -n "$msg" ]] || return 0
-    if [[ "$(net_field "$mgmt" 6)" == wired ]]; then
-        msg+="Common cause: a USB 2.0 Ethernet adapter, which tops out at 100 Mbps. A gigabit USB 3.0 adapter (for example one with a Realtek RTL8153 chip) in a blue USB 3 port fixes it. Also check the cable and the switch port: a damaged cable often links at 100 Mbps."
+    if ((usb2)); then
+        msg+="Fix: plug the adapter into a blue USB 3 port. A converter or cable between the adapter and the port must also be USB 3 (5 Gbps); a USB 2 converter limits the whole chain. After the change, lsusb -t shows 5000M next to the adapter."
+    elif [[ "$(net_field "$mgmt" 6)" == wired ]]; then
+        msg+="Common cause: a 100 Mbps USB Ethernet adapter. A gigabit USB 3 adapter (for example one with a Realtek RTL8153 chip) in a blue USB 3 port fixes it. Also check the cable and the switch port: a damaged cable often links at 100 Mbps."
     fi
     ui_menu LINK_SLOW_ACTION "Network link speed" "$msg" continue \
         continue "Continue; I understand the limits" \

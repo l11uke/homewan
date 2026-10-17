@@ -10,6 +10,10 @@ SECRETS_ENV="$HOMEWAN_ETC/secrets.env"
 ANSWERS_DRAFT="$HOMEWAN_ETC/answers.draft"
 HOMEWAN_CONFIG_VERSION=1
 
+# Network traffic a USB 2 Ethernet adapter carries in practice (bus 480 Mbit/s).
+# Plans faster than this get a USB 2 warning.
+USB2_MBPS=250
+
 # Test mode: answers come from a file and system probes read fixtures.
 # Only the test suite sets HOMEWAN_TEST=1.
 HOMEWAN_TEST="${HOMEWAN_TEST:-0}"

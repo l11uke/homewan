@@ -142,6 +142,16 @@ class TestWeekly(Base):
         self.assertIn("runs at 100 Mbps", body)
         self.assertIn("needs attention", subject)
 
+    def test_usb2_note(self):
+        self.host({"drives": [], "mgmt_iface": "eth1", "mgmt_link_mbps": 1000, "mgmt_usb_mbps": 480})
+        _, _, body, _ = self.build()
+        self.assertIn("USB 2 connection", body)
+
+    def test_no_usb_note_on_usb3(self):
+        self.host({"drives": [], "mgmt_iface": "eth1", "mgmt_link_mbps": 1000, "mgmt_usb_mbps": 5000})
+        _, _, body, _ = self.build()
+        self.assertNotIn("USB 2", body)
+
     def test_missing_drive_and_new_drive(self):
         self.host({"drives": [{"mount": "/media/usb", "status": "missing"}],
                    "new_drives": [{"mount": "/media/stick", "fstype": "ext4", "size_gb": 64}], "mgmt_link_mbps": 1000})

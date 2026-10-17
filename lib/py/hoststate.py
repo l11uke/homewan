@@ -12,22 +12,17 @@ from datetime import datetime, timezone
 HERE = os.path.dirname(os.path.abspath(__file__))
 
 
-def link_speed(iface, fixtures):
-    if not iface:
-        return None
-    if fixtures:
-        path = os.path.join(fixtures, "speed.txt")
-        if os.path.exists(path):
-            for line in open(path):
-                p = line.split()
-                if len(p) == 2 and p[0] == iface and p[1].isdigit():
-                    return int(p[1])
-        return None
-    try:
-        v = open(f"/sys/class/net/{iface}/speed").read().strip()
-        return int(v) if v.isdigit() and int(v) > 0 else None
-    except OSError:
-        return None
+def links(fixtures):
+    """Link speed and USB bus speed per interface, from netinfo.py."""
+    out = subprocess.run([sys.executable, "-I", os.path.join(HERE, "netinfo.py")] + ([fixtures] if fixtures else []),
+                         capture_output=True, text=True).stdout
+    found = {}
+    for line in out.splitlines():
+        p = line.split("\t")
+        if len(p) >= 9:
+            num = lambda v: int(v) if v.isdigit() else None
+            found[p[0]] = (num(p[7]), num(p[8]))
+    return found
 
 
 def main():
@@ -51,9 +46,12 @@ def main():
     if wanted:
         new = [{"mount": m, "fstype": v["fstype"], "size_gb": v["size_gb"]}
                for m, v in sorted(mounted.items()) if m != "/" and m not in wanted]
+    ln = links(fixtures)
+    m_link, m_usb = ln.get(mgmt, (None, None))
+    c_link, c_usb = ln.get(capture, (None, None)) if capture else (None, None)
     state = {"written": datetime.now(timezone.utc).isoformat(), "drives": drives, "new_drives": new,
-             "mgmt_iface": mgmt, "mgmt_link_mbps": link_speed(mgmt, fixtures),
-             "capture_iface": capture, "capture_link_mbps": link_speed(capture, fixtures)}
+             "mgmt_iface": mgmt, "mgmt_link_mbps": m_link, "mgmt_usb_mbps": m_usb,
+             "capture_iface": capture, "capture_link_mbps": c_link, "capture_usb_mbps": c_usb}
     os.makedirs(os.path.dirname(out), exist_ok=True)
     with open(out + ".tmp", "w") as f:
         json.dump(state, f, indent=1)

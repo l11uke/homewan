@@ -39,7 +39,7 @@ run_case() {
 # rerun_case: run the installer again on the same ETC with new answers
 rerun_case() {
     printf '%s\n' "$@" > "$WORK/$CASE/answers2"
-    HOMEWAN_TEST=1 HOMEWAN_ETC="$ETC" HOMEWAN_FIXTURES="$FX" \
+    HOMEWAN_TEST=1 HOMEWAN_ETC="$ETC" HOMEWAN_FIXTURES="$FX" HOMEWAN_UI_TRANSCRIPT="$WORK/$CASE/screens2" \
         bash "$ROOT/install.sh" --answers "$WORK/$CASE/answers2" > "$WORK/$CASE/out2" 2>&1
     RC=$?
 }
@@ -186,6 +186,17 @@ grep -q "after changing the adapter" "$WORK/$CASE/out2" && ok || fail "slow link
 rerun_case "${BASE[@]}" RESUME_DRAFT=yes LINK_SLOW_ACTION=continue
 expect_rc 0
 
+echo "Gigabit adapter on a USB 2 port: warn about the USB 2 limit"
+run_case usb2_link default "${BASE[@]}" GOALS=speed,usage,health HAS_MIRROR=yes LAYOUT=wan_mirror CAP_ENABLED=no PLAN_DOWN_MBPS=740 PLAN_UP_MBPS=42
+printf 'eth1 480\n' > "$FX/usb.txt"; rm -rf "$ETC"; mkdir -p "$ETC"
+rerun_case "${BASE[@]}" GOALS=speed,usage,health HAS_MIRROR=yes LAYOUT=wan_mirror CAP_ENABLED=no PLAN_DOWN_MBPS=740 PLAN_UP_MBPS=42 LINK_SLOW_ACTION=continue
+expect_rc 0
+grep -q "USB 2 connection" "$WORK/$CASE/screens2" && grep -q "lsusb -t shows 5000M" "$WORK/$CASE/screens2" && ok || fail "USB 2 adapter not reported"
+printf 'eth1 5000\n' > "$FX/usb.txt"; rm -rf "$ETC" "$WORK/$CASE/screens2"; mkdir -p "$ETC"
+rerun_case "${BASE[@]}" GOALS=speed,usage,health HAS_MIRROR=yes LAYOUT=wan_mirror CAP_ENABLED=no PLAN_DOWN_MBPS=740 PLAN_UP_MBPS=42
+expect_rc 0
+grep -qs "USB 2 connection" "$WORK/$CASE/screens2" && fail "USB 3 adapter reported as USB 2" || ok
+
 echo "Bad answers are rejected"
 run_case bad_email default "${BASE[@]}" GOALS=speed,health REPORT_TO=not-an-address
 [[ "$RC" != 0 ]] && grep -q "REPORT_TO rejected" "$WORK/$CASE/out" && ok || fail "bad email accepted"
@@ -296,11 +307,27 @@ else
 fi
 bash "$ROOT/bin/homewan" help | grep -q "bucket add NAME" && ok || fail "help text"
 
-echo "Host state for the report: expected, missing and new drives, link speeds"
+echo "Host state for the report: expected, missing and new drives, link and USB speeds"
 CASE=hoststate
 python3 -I "$ROOT/lib/py/hoststate.py" "$WORK/host.json" "/media/usb=1a2b3c4d5e6f7a8b,/media/gone=XYZ" eth1 eth0 "$FIX/pi4" \
-    && python3 -c 'import json,sys; h=json.load(open(sys.argv[1])); st={d["mount"]: d["status"] for d in h["drives"]}; sys.exit(0 if st=={"/media/usb":"ok","/media/gone":"missing"} and h["mgmt_link_mbps"]==1000 and h["new_drives"]==[] else 1)' "$WORK/host.json" \
+    && python3 -c 'import json,sys; h=json.load(open(sys.argv[1])); st={d["mount"]: d["status"] for d in h["drives"]}; sys.exit(0 if st=={"/media/usb":"ok","/media/gone":"missing"} and h["mgmt_link_mbps"]==1000 and h["mgmt_usb_mbps"]==5000 and h["capture_usb_mbps"] is None and h["new_drives"]==[] else 1)' "$WORK/host.json" \
     && ok || fail "host state wrong: $(cat "$WORK/host.json" 2>/dev/null)"
+
+echo "homewan doctor notes a USB 2 adapter and stays quiet on USB 3"
+CASE=doctor_links
+mkdir -p "$WORK/links"; cp "$FIX"/pi4/* "$WORK/links/"
+links_out() {
+    HOMEWAN_TEST=1 HOMEWAN_FIXTURES="$WORK/links" bash -c '
+        source "$1/lib/common.sh"
+        eval "$(sed -n "/^link_notes()/,/^}/p" "$1/bin/homewan")"
+        declare -A CONF=([MGMT_IFACE]=eth1 [CAPTURE_IFACE]=eth0 [PLAN_DOWN_MBPS]=740 [PLAN_UP_MBPS]=42)
+        link_notes' _ "$ROOT"
+}
+[[ -z "$(links_out)" ]] && ok || fail "notes on a USB 3 adapter: $(links_out)"
+printf 'eth1 480\n' > "$WORK/links/usb.txt"
+links_out | grep -q "USB 2 connection" && ok || fail "USB 2 adapter not noted: $(links_out)"
+printf 'eth1 100\neth0 1000\n' > "$WORK/links/speed.txt"
+links_out | grep -q "runs at 100 Mbps" && ok || fail "slow link not noted: $(links_out)"
 
 echo "homewan report --dry-run runs the report job with the report token, mail password and state folder"
 CASE=report_cmd

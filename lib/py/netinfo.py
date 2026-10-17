@@ -2,17 +2,44 @@
 
 Columns: name, state, mac, ipv4 addresses (comma-separated CIDR or -),
 default route metric (or -), kind (wired|wireless), lan subnet (or -),
-link speed in Mbps (or - when unknown, as for Wi-Fi).
+link speed in Mbps (or - when unknown, as for Wi-Fi), USB bus speed in Mbps
+for a USB adapter (480 for USB 2, 5000 or more for USB 3; - when not USB).
 
 Reads `ip -j addr` and `ip -j route` and /sys/class/net, or the files
-addr.json, route.json, sysnet.txt and speed.txt ("name mbps" lines) from a
-fixture directory.
+addr.json, route.json, sysnet.txt, speed.txt and usb.txt ("name mbps" lines)
+from a fixture directory.
 """
 import ipaddress
 import json
 import os
 import subprocess
 import sys
+
+
+def pairs(fixtures, name):
+    out = {}
+    path = os.path.join(fixtures, name)
+    if os.path.exists(path):
+        with open(path) as f:
+            for line in f:
+                parts = line.split()
+                if len(parts) == 2:
+                    out[parts[0]] = parts[1]
+    return out
+
+
+def usb_bus_speed(name):
+    """The USB bus speed of the adapter behind NAME, from the parent of its
+    USB interface in sysfs, or None when NAME is not a USB device."""
+    dev = os.path.realpath(os.path.join("/sys/class/net", name, "device"))
+    if "/usb" not in dev:
+        return None
+    try:
+        with open(os.path.join(os.path.dirname(dev), "speed")) as f:
+            v = f.read().strip()
+        return v if v.isdigit() else None
+    except OSError:
+        return None
 
 
 def load(fixtures):
@@ -27,15 +54,7 @@ def load(fixtures):
                 parts = line.split()
                 if len(parts) == 3:
                     sysnet[parts[0]] = (parts[1] == "physical", parts[2] == "wireless")
-        speeds = {}
-        path = os.path.join(fixtures, "speed.txt")
-        if os.path.exists(path):
-            with open(path) as f:
-                for line in f:
-                    parts = line.split()
-                    if len(parts) == 2:
-                        speeds[parts[0]] = parts[1]
-        return addrs, routes, sysnet, speeds
+        return addrs, routes, sysnet, pairs(fixtures, "speed.txt"), pairs(fixtures, "usb.txt")
     addrs = json.loads(subprocess.run(["ip", "-j", "addr"], capture_output=True, text=True).stdout or "[]")
     routes = json.loads(subprocess.run(["ip", "-j", "route"], capture_output=True, text=True).stdout or "[]")
     sysnet = {}
@@ -53,12 +72,13 @@ def load(fixtures):
                 speeds[name] = v
         except OSError:
             pass
-    return addrs, routes, sysnet, speeds
+    usb = {n: v for n in sysnet if (v := usb_bus_speed(n))}
+    return addrs, routes, sysnet, speeds, usb
 
 
 def main():
     fixtures = sys.argv[1] if len(sys.argv) > 1 and sys.argv[1] else None
-    addrs, routes, sysnet, speeds = load(fixtures)
+    addrs, routes, sysnet, speeds, usb = load(fixtures)
     metrics = {}
     for r in routes:
         if r.get("dst") == "default" and r.get("dev"):
@@ -82,6 +102,7 @@ def main():
             "wireless" if wireless else "wired",
             subnet,
             speeds.get(name, "-"),
+            usb.get(name, "-"),
         ]))
 
 

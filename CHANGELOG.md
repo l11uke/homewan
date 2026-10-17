@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### README, logins and USB 2 detection (homewan-011)
+
+- README rewritten: what homewan needs, the three layouts, install, commands, file locations and a FAQ.
+- `homewan secrets` shows each login as address, user and password on separate lines.
+- The installer, `homewan doctor` and the weekly report detect a USB Ethernet adapter on a USB 2 connection. Such an adapter reports a gigabit link but carries roughly 200 to 300 Mbps, so the link-speed check alone missed it. The fix text covers USB 2 converters.
+- The installer's slow-link advice no longer says every USB 2 adapter tops out at 100 Mbps.
+- Test runs can record the installer's menu screens (`HOMEWAN_UI_TRANSCRIPT`), so tests check the text shown.
+
 ### Report polish (homewan-010)
 
 - No more `MissingPivotFunction` warnings in the report's output and the system log.

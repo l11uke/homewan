@@ -4,7 +4,8 @@ The homewan command writes /state/host.json on the Pi before each report or
 daily check, because the container cannot see the Pi's mounts by filesystem ID:
 {"drives": [{"mount", "expected_uuid", "actual_uuid", "status": ok|missing|different}],
  "new_drives": [{"mount", "fstype", "size_gb"}],
- "mgmt_iface", "mgmt_link_mbps", "capture_iface", "capture_link_mbps"}
+ "mgmt_iface", "mgmt_link_mbps", "mgmt_usb_mbps", "capture_iface", "capture_link_mbps",
+ "capture_usb_mbps"}  (usb: 480 for USB 2, 5000+ for USB 3, None when not USB)
 """
 import json
 import os

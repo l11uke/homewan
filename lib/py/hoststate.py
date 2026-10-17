@@ -25,6 +25,15 @@ def links(fixtures):
     return found
 
 
+def pi_model(fixtures):
+    path = os.path.join(fixtures, "model") if fixtures else "/proc/device-tree/model"
+    try:
+        with open(path, "rb") as f:
+            return f.read().replace(b"\0", b"").decode(errors="replace").strip() or None
+    except OSError:
+        return None
+
+
 def main():
     out, expected, mgmt, capture = sys.argv[1:5]
     fixtures = sys.argv[5] if len(sys.argv) > 5 and sys.argv[5] else None
@@ -51,7 +60,8 @@ def main():
     c_link, c_usb = ln.get(capture, (None, None)) if capture else (None, None)
     state = {"written": datetime.now(timezone.utc).isoformat(), "drives": drives, "new_drives": new,
              "mgmt_iface": mgmt, "mgmt_link_mbps": m_link, "mgmt_usb_mbps": m_usb,
-             "capture_iface": capture, "capture_link_mbps": c_link, "capture_usb_mbps": c_usb}
+             "capture_iface": capture, "capture_link_mbps": c_link, "capture_usb_mbps": c_usb,
+             "pi_model": pi_model(fixtures)}
     os.makedirs(os.path.dirname(out), exist_ok=True)
     with open(out + ".tmp", "w") as f:
         json.dump(state, f, indent=1)

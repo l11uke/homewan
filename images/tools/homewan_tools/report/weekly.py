@@ -157,6 +157,20 @@ def table(headers, rows, align=None):
 # Network traffic a USB 2 Ethernet adapter carries in practice (lib/common.sh USB2_MBPS).
 USB2_MBPS = 250
 
+# Speedtest download a Raspberry Pi 4 reaches while ntopng analyses the
+# mirrored copy of the same traffic (measured with packet work spread over all
+# cores). Faster plans get a note under the speed table.
+PI4_CAPTURE_MBPS = 450
+
+
+def capture_ceiling_note(host, s):
+    model = host.get("pi_model") or ""
+    if "Raspberry Pi 4" in model and s.has("capture") and s.plan_down > PI4_CAPTURE_MBPS:
+        return (f"<p>With traffic capture on, a Raspberry Pi 4 measures up to about {PI4_CAPTURE_MBPS} Mbps: "
+                "it analyses a copy of each speedtest while running it. Results near that figure show the Pi's limit.</p>")
+    return ""
+
+
 OVER = {"slowed": "your speed is slowed", "charged": "extra data is charged", "cut_off": "your internet stops until the reset"}
 
 
@@ -192,7 +206,7 @@ def build_report(source, s, now, outdir):
             rows = [["Download", f"{dl.mean():.0f}", f"{dl.min():.0f}", f"{dl.max():.0f}", f"{s.plan_down}", f"{100 * dl.mean() / s.plan_down:.0f}%" if s.plan_down else "-"],
                     ["Upload", f"{ul.mean():.0f}", f"{ul.min():.0f}", f"{ul.max():.0f}", f"{s.plan_up}", f"{100 * ul.mean() / s.plan_up:.0f}%" if s.plan_up and not ul.empty else "-"]]
             sections.append(f"<h3>Speed</h3>{table(['', 'Average', 'Lowest', 'Highest', 'Plan', 'Average vs plan'], rows, ['left'] + ['right'] * 5)}"
-                            f"<p>{len(dl)} tests, using {used:.1f} GB.</p>")
+                            f"<p>{len(dl)} tests, using {used:.1f} GB.</p>{capture_ceiling_note(host, s)}")
             text.append(f"Speed: average {dl.mean():.0f}/{ul.mean():.0f} Mbps from {len(dl)} tests (plan {s.plan_down}/{s.plan_up}).")
         else:
             sections.append("<h3>Speed</h3><p>No speedtest results this week.</p>")

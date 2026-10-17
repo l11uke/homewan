@@ -1,0 +1,2 @@
+#!/bin/sh
+echo "udevadm $*" >> "$STUB_LOG"

@@ -8,6 +8,8 @@ DERIVED_ENV="$RENDERED/derived.env"
 HOMEWAN_LOG_DIR="${HOMEWAN_LOG_DIR:-/var/log/homewan}"
 SYSTEMD_DIR="${SYSTEMD_DIR:-/etc/systemd/system}"
 NM_CONF="${NM_CONF:-/etc/NetworkManager/conf.d/90-homewan-capture.conf}"
+RPS_RULE="${RPS_RULE:-/etc/udev/rules.d/90-homewan-rps.rules}"
+SYSFS_NET="${SYSFS_NET:-/sys/class/net}"
 
 declare -gA CONF=()   # site.conf as loaded by deploy and the homewan command
 
@@ -109,6 +111,57 @@ configure_capture_port() {
     else
         log "NetworkManager is not running. Make sure nothing else gives $ifc an address."
     fi
+}
+
+# ---------- packet processing across cores (RPS) ----------
+# Linux handles each network port's incoming packets on one core by default.
+# With capture on, a speedtest's traffic arrives twice (on the Pi's own port
+# and as the mirrored copy), and that one core saturates long before the
+# connection does. Receive packet steering spreads the work over every core.
+
+rps_mask() {
+    local n="${HOMEWAN_NPROC:-$(nproc 2>/dev/null || echo 1)}"
+    printf '%x' $(( (1 << n) - 1 ))
+}
+
+rps_ifaces() {
+    printf '%s\n' "${CONF[MGMT_IFACE]:-}"
+    if feature capture; then printf '%s\n' "${CONF[CAPTURE_IFACE]:-}"; fi
+}
+
+# rps_state IFACE: "ok", "off" (some queue not spread), or "-" (no queues).
+rps_state() {
+    local want=$(( 16#$(rps_mask) )) q v found=0
+    for q in "$SYSFS_NET/$1"/queues/rx-*/rps_cpus; do
+        [[ -r "$q" ]] || continue
+        found=1
+        v="$(tr -d ',\n' < "$q")"; [[ "$v" =~ ^[0-9a-fA-F]+$ ]] || v=0
+        (( (16#${v:-0} & want) == want )) || { printf off; return; }
+    done
+    ((found)) && printf ok || printf -- -
+}
+
+configure_rps() {
+    local mask; mask="$(rps_mask)"
+    local ifaces=() i q
+    mapfile -t ifaces < <(rps_ifaces | grep .)
+    if [[ "$mask" == 1 || ${#ifaces[@]} -eq 0 ]]; then rm -f "$RPS_RULE"; return 0; fi
+    mkdir -p "$(dirname "$RPS_RULE")"
+    {
+        printf '# Written by homewan: spread incoming packet work over all cores (RPS).\n'
+        printf '# Reapplied whenever the port appears, for example after a USB adapter reconnects.\n'
+        for i in "${ifaces[@]}"; do
+            printf 'ACTION=="add", SUBSYSTEM=="net", KERNEL=="%s", RUN+="/bin/sh -c '"'"'for q in /sys/class/net/%%k/queues/rx-*/rps_cpus; do echo %s > $$q; done'"'"'"\n' "$i" "$mask"
+        done
+    } > "$RPS_RULE"
+    udevadm control --reload 2>/dev/null || true
+    # Apply now as well; the rule covers the next boot or reconnect.
+    for i in "${ifaces[@]}"; do
+        for q in "$SYSFS_NET/$i"/queues/rx-*/rps_cpus; do
+            [[ -w "$q" ]] && printf '%s\n' "$mask" > "$q"
+        done
+    done
+    return 0
 }
 
 install_units() {
@@ -298,7 +351,7 @@ deploy() {
     conf_load
     step "Preparing folders and settings files"; make_dirs
     render_all || fail "could not render configuration files"
-    step "Configuring the capture port"; configure_capture_port
+    step "Configuring the network ports"; configure_capture_port; configure_rps
 
     if [[ "$build" == --build ]] || ! docker image inspect homewan/tools:local >/dev/null 2>&1 \
         || { feature capture && ! docker image inspect homewan/ntopng:local >/dev/null 2>&1; }; then

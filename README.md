@@ -65,6 +65,8 @@ Run each command with `sudo`.
 **My speedtests come out well below my plan. Why?**
 Every speedtest runs through the Pi's own network connection, so they can only measure as fast as that connection. Common limits are a 100 Mbps USB adapter, and a gigabit adapter plugged into a USB 2 port or through a USB 2 converter, which caps it at roughly 200 to 300 Mbps. `homewan doctor` and the weekly report both name the cause when they detect it. Use a gigabit adapter in a blue USB 3 port; `lsusb -t` then shows `5000M` next to it.
 
+With traffic capture on, the Pi also analyses a copy of each speedtest while running it. A Raspberry Pi 4 tops out at about 450 Mbps this way, so on a faster plan the speedtests show the Pi's limit. homewan spreads the packet work over all four cores, which roughly doubles that limit compared with Linux's default; `homewan doctor` checks the setting.
+
 **The mirror test sees no packets.**
 Check the switch's mirror settings: the source is the port the modem (layout A) or router (layout B) plugs into, the destination is the port the Pi's built-in Ethernet plugs into, and mirroring covers both directions. Then run the installer again.
 

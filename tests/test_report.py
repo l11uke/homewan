@@ -152,6 +152,14 @@ class TestWeekly(Base):
         _, _, body, _ = self.build()
         self.assertNotIn("USB 2", body)
 
+    def test_pi4_capture_note(self):
+        self.host({"drives": [], "mgmt_iface": "eth1", "mgmt_link_mbps": 1000, "pi_model": "Raspberry Pi 4 Model B Rev 1.5"})
+        subject, _, body, _ = self.build(FEATURES="report,health,speedtest,capture", PLAN_DOWN_MBPS="740")
+        self.assertIn("up to about 450 Mbps", body)
+        self.assertNotIn("needs attention", subject)
+        _, _, body, _ = self.build(FEATURES="report,health,speedtest", PLAN_DOWN_MBPS="740")
+        self.assertNotIn("up to about 450 Mbps", body)
+
     def test_missing_drive_and_new_drive(self):
         self.host({"drives": [{"mount": "/media/usb", "status": "missing"}],
                    "new_drives": [{"mount": "/media/stick", "fstype": "ext4", "size_gb": 64}], "mgmt_link_mbps": 1000})

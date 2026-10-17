@@ -265,12 +265,14 @@ in_file "$R/telegraf.conf" 'mount_points = \["/"\]'
 
 echo "Deploy against stand-ins for Docker and InfluxDB, twice"
 CASE=deploy
-D="$WORK/deploy"; mkdir -p "$D/systemd" "$D/bin"
+D="$WORK/deploy"; mkdir -p "$D/systemd" "$D/bin" "$D/sysnet/eth0/queues/rx-0" "$D/sysnet/eth1/queues/rx-0" "$D/sysnet/eth1/queues/rx-1"
+for q in "$D"/sysnet/*/queues/rx-*; do printf '0\n' > "$q/rps_cpus"; done
 cp -r "$WORK/layout_a/etc" "$D/etc"
 sed -i "s#^DATA_DIR=.*#DATA_DIR='$D/data'#" "$D/etc/site.conf"
 deploy_run() {
     PATH="$ROOT/tests/stubs:$PATH" STUB_STATE="$D/state.json" STUB_LOG="$D/calls.log" \
     HOMEWAN_ETC="$D/etc" HOMEWAN_ROOT="$ROOT" SYSTEMD_DIR="$D/systemd" NM_CONF="$D/nm.conf" \
+    RPS_RULE="$D/rps.rules" SYSFS_NET="$D/sysnet" HOMEWAN_NPROC=4 \
     HOMEWAN_LOG_DIR="$D/log" HOMEWAN_BIN_LINK="$D/bin/homewan" bash -c '
         source "$HOMEWAN_ROOT/lib/common.sh"; source "$HOMEWAN_ROOT/lib/ui.sh"; UI_MODE=text
         source "$HOMEWAN_ROOT/lib/config.sh"; source "$HOMEWAN_ROOT/lib/deploy.sh"; source "$HOMEWAN_ROOT/lib/verify.sh"
@@ -284,6 +286,10 @@ T1="$(sec INFLUX_TOKEN_TELEGRAF)"
 python3 -c 'import json,sys; s=json.load(open(sys.argv[1])); sys.exit(0 if set(s["buckets"])=={"network","system"} and len(s["auths"])==4 and [v["token"] for v in s["v1"]]==["ntopng"] else 1)' "$D/state.json" && ok || fail "buckets/tokens wrong: $(cat "$D/state.json")"
 python3 -c 'import json,sys; r=json.load(open(sys.argv[1]))["redis"]; sys.exit(0 if r.get("ntopng.prefs.timeseries_driver")=="influxdb" and r.get("ntopng.prefs.ts_post_data_url")=="http://127.0.0.1:8086" and r.get("ntopng.prefs.admin_password_changed")=="1" and len(r.get("ntopng.user.admin.password",""))==32 else 1)' "$D/state.json" && ok || fail "ntopng settings wrong"
 in_file "$D/nm.conf" "unmanaged-devices=interface-name:eth0"
+in_file "$D/rps.rules" 'KERNEL=="eth1", RUN+="/bin/sh -c .for q in /sys/class/net/%k/queues/rx-\*/rps_cpus; do echo f > \$\$q; done.'
+in_file "$D/rps.rules" 'KERNEL=="eth0"'
+[[ "$(cat "$D"/sysnet/*/queues/rx-*/rps_cpus | sort -u)" == f ]] && ok || fail "RPS not applied to every queue: $(grep -r . "$D/sysnet")"
+grep -q "udevadm control --reload" "$D/calls.log" && ok || fail "udev rules not reloaded"
 [[ -f "$D/systemd/homewan.service" && -f "$D/systemd/homewan-speedtest.timer" && -f "$D/systemd/homewan-smart.timer" ]] && ok || fail "units not installed"
 [[ -d "$D/data/influxdb/data" && -d "$D/data/ntopng" && -L "$D/bin/homewan" ]] && ok || fail "folders or command link missing"
 grep -q "pull --ignore-buildable" "$D/calls.log" && grep -q "profile tools build" "$D/calls.log" && ok || fail "images not pulled and built"
@@ -328,6 +334,21 @@ printf 'eth1 480\n' > "$WORK/links/usb.txt"
 links_out | grep -q "USB 2 connection" && ok || fail "USB 2 adapter not noted: $(links_out)"
 printf 'eth1 100\neth0 1000\n' > "$WORK/links/speed.txt"
 links_out | grep -q "runs at 100 Mbps" && ok || fail "slow link not noted: $(links_out)"
+
+echo "homewan doctor checks packet work is spread over all cores"
+CASE=doctor_rps
+R2="$WORK/rps"; mkdir -p "$R2/eth1/queues/rx-0" "$R2/eth0/queues/rx-0"
+rps_out() {
+    SYSFS_NET="$R2" HOMEWAN_NPROC=4 bash -c '
+        source "$1/lib/common.sh"; source "$1/lib/config.sh"; source "$1/lib/deploy.sh"; source "$1/lib/verify.sh"
+        eval "$(sed -n "/^rps_check()/,/^}/p" "$1/bin/homewan")"
+        CONF=([MGMT_IFACE]=eth1 [CAPTURE_IFACE]=eth0 [FEATURES]=report,capture)
+        rps_check; echo "failed=$VERIFY_FAILED"' _ "$ROOT"
+}
+printf 'f\n' > "$R2/eth1/queues/rx-0/rps_cpus"; printf '0000000f\n' > "$R2/eth0/queues/rx-0/rps_cpus"
+[[ "$(rps_out | grep -c '^  OK')" == 2 ]] && rps_out | grep -q failed=0 && ok || fail "RPS set but doctor disagrees: $(rps_out)"
+printf '0\n' > "$R2/eth0/queues/rx-0/rps_cpus"
+rps_out | grep -q "FAIL  eth0 handles packets on one core" && rps_out | grep -q failed=1 && ok || fail "RPS off not reported: $(rps_out)"
 
 echo "homewan report --dry-run runs the report job with the report token, mail password and state folder"
 CASE=report_cmd

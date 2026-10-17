@@ -156,11 +156,27 @@ link_notes() {
     done < <(py netinfo.py "$(is_test && printf %s "$HOMEWAN_FIXTURES")")
 }
 
+# Packet work spread over all cores on each port homewan uses (see configure_rps).
+rps_check() {
+    [[ "$(rps_mask)" == 1 ]] && return 0
+    local i st
+    while read -r i; do
+        [[ -n "$i" ]] || continue
+        st="$(rps_state "$i")"
+        case "$st" in
+            ok) printf '  OK    %s spreads packet work over all cores\n' "$i" ;;
+            off) printf '  FAIL  %s handles packets on one core, which caps speedtests; fix with: sudo homewan apply\n' "$i"
+                 VERIFY_FAILED=$((VERIFY_FAILED + 1)) ;;
+        esac
+    done < <(rps_ifaces)
+}
+
 cmd_doctor() {
     printf 'Checking...\n'
     verify_all 0
     verify_text
     link_notes
+    rps_check
     if [[ -n "${CONF[DISK_EXPECTED]:-}" ]]; then
         local e m u actual
         IFS=',' read -ra _e <<<"${CONF[DISK_EXPECTED]}"
@@ -194,6 +210,7 @@ cmd_uninstall() {
     systemctl daemon-reload
     hw_compose --profile tools down --rmi all --remove-orphans
     rm -f "$NM_CONF"; systemctl reload NetworkManager 2>/dev/null || true
+    rm -f "$RPS_RULE"; udevadm control --reload 2>/dev/null || true
     rm -f /usr/local/bin/homewan
     if [[ "$purge" == --purge ]]; then rm -rf "${CONF[DATA_DIR]}" "$HOMEWAN_ETC"; fi
     printf 'homewan is removed. The code is still in %s; delete it if you no longer need it.\n' "$HOMEWAN_ROOT"

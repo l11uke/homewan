@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+### Faster speedtests with capture on (homewan-012)
+
+- Linux handled each port's incoming packets on one core. With capture on, a speedtest's traffic reaches the Pi twice (its own connection and the mirrored copy), and that core saturated: a Pi 4 measured about 150 to 220 Mbps on a 740 Mbps plan. homewan now spreads packet work over every core (receive packet steering) on the capture port and the Pi's own connection. The same Pi then measured 433 Mbps.
+- A udev rule reapplies the setting at boot and whenever a port reappears, for example after a USB adapter reconnects. `homewan uninstall` removes it.
+- `homewan doctor` fails when a port handles packets on one core.
+- The weekly report notes, under the speed table, that a Pi 4 with capture on measures up to about 450 Mbps, when the plan is faster than that.
+
 ### README, logins and USB 2 detection (homewan-011)
 
 - README rewritten: what homewan needs, the three layouts, install, commands, file locations and a FAQ.

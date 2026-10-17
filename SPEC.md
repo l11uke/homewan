@@ -121,7 +121,11 @@ Everything runs in one Docker Compose project named `homewan`. The host runs Doc
 
 Timers start jobs through `homewan-run@JOB.service`, which runs `homewan run JOB`. The command passes each job the settings from `site.conf` and only the token that job needs, and for `smart` the selected drives (`--device`) with `SYS_RAWIO` and `SYS_ADMIN`.
 
-### 5.1.2 Installing alongside another stack
+### 5.1.2 Packet processing across cores
+
+With capture on, every speedtest's traffic reaches the Pi twice: on its own connection and as the mirrored copy on the capture port. Linux handles each port's incoming packets on one core by default, and on a Pi 4 that core saturates at about 200 Mbps. Deploy sets receive packet steering (`queues/rx-*/rps_cpus`) to all cores on the management and capture ports, and writes `/etc/udev/rules.d/90-homewan-rps.rules` to reapply it at boot and when a port reappears. `homewan doctor` checks it. Measured on a Pi 4 with an AX88179 USB 3 adapter: 150 to 220 Mbps before, 433 Mbps after.
+
+### 5.1.3 Installing alongside another stack
 
 `install.sh --alongside` installs while another monitoring stack still runs. homewan takes free ports, and both ntopng instances can capture from the same port. After the other stack is removed, `homewan reconfigure` moves homewan back to its usual ports: each port goes back to its default when that port is free.
 
